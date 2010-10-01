@@ -587,7 +587,7 @@ void RewriteObjC::Initialize(ASTContext &context) {
   // scope related warning...
   if (IsHeader)
     Preamble = "#pragma once\n";
-  Preamble += "struct objc_selector; struct objc_class;\n";
+  Preamble += "struct objc_selector; struct objc_class; struct objc_super;\n";
   Preamble += "struct __rw_objc_super { struct objc_object *object; ";
   Preamble += "struct objc_object *superClass; ";
   if (LangOpts.MicrosoftExt) {
@@ -4378,6 +4378,7 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
                                              std::string Desc) {
   std::string S = "\nstruct " + Tag;
   std::string Constructor = "  " + Tag;
+  std::string cConstructor = "#define " + Tag;
 
   S += " {\n  struct __block_impl impl;\n";
   S += "  struct " + Desc;
@@ -4386,6 +4387,7 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
   Constructor += "(void *fp, "; // Invoke function pointer.
   Constructor += "struct " + Desc; // Descriptor pointer.
   Constructor += " *desc";
+  cConstructor += "(fp, desc";
 
   if (BlockDeclRefs.size()) {
     // Output all "by copy" declarations.
@@ -4404,6 +4406,7 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
       //     myImportedBlock(); // import and invoke the closure
       //   };
       //
+      cConstructor += ", " + ArgName;
       if (isTopLevelBlockPointerType((*I)->getType())) {
         S += "struct __block_impl *";
         Constructor += ", void *" + ArgName;
@@ -4429,12 +4432,15 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
         TypeString += " *";
         FieldName = TypeString + FieldName;
         ArgName = TypeString + ArgName;
+        cConstructor += ", " + ArgName;
         Constructor += ", " + ArgName;
       }
       S += FieldName + "; // by ref\n";
     }
     // Finish writing the constructor.
     Constructor += ", int flags=0)";
+    cConstructor += ", flags) \\\n";
+    cConstructor += "  ((struct " + Tag + "){ \\\n";
     // Initialize all "by copy" arguments.
     bool firsTime = true;
     for (SmallVector<ValueDecl*,8>::iterator I = BlockByCopyDecls.begin(),
@@ -4446,10 +4452,14 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
         }
         else
           Constructor += ", ";
-        if (isTopLevelBlockPointerType((*I)->getType()))
+        cConstructor += "    ." + Name + " = ";
+        if (isTopLevelBlockPointerType((*I)->getType())) {
           Constructor += Name + "((struct __block_impl *)_" + Name + ")";
-        else
+          cConstructor += "((struct __block_impl *)(_" + Name + ")), \\\n";
+        } else {
           Constructor += Name + "(_" + Name + ")";
+          cConstructor += "(_" + Name + "), \\\n";
+        }
     }
     // Initialize all "by ref" arguments.
     for (SmallVector<ValueDecl*,8>::iterator I = BlockByRefDecls.begin(),
@@ -4462,29 +4472,42 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
       else
         Constructor += ", ";
       Constructor += Name + "(_" + Name + "->__forwarding)";
+      cConstructor += "    ." + Name + " = ((_"
+          + Name + ")->__forwarding), \\\n";
     }
-    
-    Constructor += " {\n";
-    if (GlobalVarDecl)
-      Constructor += "    impl.isa = &_NSConcreteGlobalBlock;\n";
-    else
-      Constructor += "    impl.isa = &_NSConcreteStackBlock;\n";
-    Constructor += "    impl.Flags = flags;\n    impl.FuncPtr = fp;\n";
 
-    Constructor += "    Desc = desc;\n";
+    Constructor += " {\n";
   } else {
     // Finish writing the constructor.
     Constructor += ", int flags=0) {\n";
-    if (GlobalVarDecl)
-      Constructor += "    impl.isa = &_NSConcreteGlobalBlock;\n";
-    else
-      Constructor += "    impl.isa = &_NSConcreteStackBlock;\n";
-    Constructor += "    impl.Flags = flags;\n    impl.FuncPtr = fp;\n";
-    Constructor += "    Desc = desc;\n";
+    cConstructor += ", flags) \\\n";
+    cConstructor += "  ((struct " + Tag + "){ \\\n";
   }
+
+  cConstructor += "    .impl = { \\\n";
+  if (GlobalVarDecl) {
+    Constructor  += "    impl.isa = &_NSConcreteGlobalBlock;\n";
+    cConstructor += "      .isa = &_NSConcreteGlobalBlock, \\\n";
+  } else {
+    Constructor += "    impl.isa = &_NSConcreteStackBlock;\n";
+    cConstructor += "      .isa = &_NSConcreteStackBlock, \\\n";
+  }
+  Constructor  += "    impl.Flags = flags;\n    impl.FuncPtr = fp;\n";
+  Constructor += "    Desc = desc;\n";
   Constructor += "  ";
   Constructor += "}\n";
+  cConstructor +=
+    "      .Flags = (flags), \\\n"
+    "      .FuncPtr = (fp), \\\n"
+    "    }, \\\n"
+    "    .Desc = (desc), \\\n"
+    "  })\n";
+
+  S += "#ifdef __cplusplus\n";
   S += Constructor;
+  S += "#else\n";
+  S += cConstructor;
+  S += "#endif\n";
   S += "};\n";
   return S;
 }
@@ -5544,15 +5567,18 @@ Stmt *RewriteObjC::SynthBlockInitExpr(BlockExpr *Exp,
       InitExprs.push_back(Exp);
     }
   }
+
+  int flag = 0;
   if (ImportedBlockDecls.size()) {
     // generate BLOCK_HAS_COPY_DISPOSE(have helper funcs) | BLOCK_HAS_DESCRIPTOR
-    int flag = (BLOCK_HAS_COPY_DISPOSE | BLOCK_HAS_DESCRIPTOR);
-    unsigned IntSize = 
-      static_cast<unsigned>(Context->getTypeSize(Context->IntTy));
-    Expr *FlagExp = IntegerLiteral::Create(*Context, llvm::APInt(IntSize, flag), 
-                                           Context->IntTy, SourceLocation());
-    InitExprs.push_back(FlagExp);
+    flag = (BLOCK_HAS_COPY_DISPOSE | BLOCK_HAS_DESCRIPTOR);
   }
+  unsigned IntSize =
+    static_cast<unsigned>(Context->getTypeSize(Context->IntTy));
+  Expr *FlagExp = IntegerLiteral::Create(*Context, llvm::APInt(IntSize, flag),
+                                         Context->IntTy, SourceLocation());
+  InitExprs.push_back(FlagExp);
+
   NewRep = new (Context) CallExpr(*Context, DRE, &InitExprs[0], InitExprs.size(),
                                   FType, VK_LValue, SourceLocation());
   NewRep = new (Context) UnaryOperator(NewRep, UO_AddrOf,

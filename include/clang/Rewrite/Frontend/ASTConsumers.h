@@ -36,6 +36,13 @@ CreateModernObjCRewriter(const std::string &InFile,
                          DiagnosticsEngine &Diags, const LangOptions &LOpts,
                          bool SilenceRewriteMacroWarning, bool LineInfo);
 
+// Blocks rewriter: attempts to rewrite Blocks constructs into pure C code.
+ASTConsumer *CreateBlocksRewriter(const std::string &InFile,
+                                  llvm::raw_ostream *OS,
+                                  DiagnosticsEngine &Diags,
+                                  const LangOptions &LOpts,
+                                  bool SilenceRewriteMacroWarning);
+
 /// CreateHTMLPrinter - Create an AST consumer which rewrites source code to
 /// HTML with syntax highlighting suitable for viewing in a web-browser.
 std::unique_ptr<ASTConsumer> CreateHTMLPrinter(std::unique_ptr<raw_ostream> OS,

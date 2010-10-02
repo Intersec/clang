@@ -102,6 +102,7 @@ CreateFrontendBaseAction(CompilerInstance &CI) {
   }
 
   case RewriteMacros:          return llvm::make_unique<RewriteMacrosAction>();
+  case RewriteBlocks:          return llvm::make_unique<RewriteBlocksAction>();
   case RewriteTest:            return llvm::make_unique<RewriteTestAction>();
 #if CLANG_ENABLE_OBJC_REWRITER
   case RewriteObjC:            return llvm::make_unique<RewriteObjCAction>();

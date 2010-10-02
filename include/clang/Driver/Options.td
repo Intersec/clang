@@ -950,6 +950,8 @@ def rewrite_objc : Flag<["-"], "rewrite-objc">, Flags<[DriverOption,CC1Option]>,
   HelpText<"Rewrite Objective-C source to C++">, Group<Action_Group>;
 def rewrite_legacy_objc : Flag<["-"], "rewrite-legacy-objc">, Flags<[DriverOption]>,
   HelpText<"Rewrite Legacy Objective-C source to C++">;
+def rewrite_blocks : Flag<["-"], "rewrite-blocks">, Flags<[DriverOption,CC1Option]>,
+  HelpText<"Rewrite C with blocks source to plain C99">, Group<Action_Group>;
 def rdynamic : Flag<["-"], "rdynamic">;
 def rpath : Separate<["-"], "rpath">, Flags<[LinkerInput]>;
 def rtlib_EQ : Joined<["-", "--"], "rtlib=">;

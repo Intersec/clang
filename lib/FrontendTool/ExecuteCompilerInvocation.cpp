@@ -97,6 +97,7 @@ static FrontendAction *CreateFrontendBaseAction(CompilerInstance &CI) {
 
 #ifdef CLANG_ENABLE_REWRITER
   case RewriteMacros:          return new RewriteMacrosAction();
+  case RewriteBlocks:          return new RewriteBlocksAction();
   case RewriteObjC:            return new RewriteObjCAction();
   case RewriteTest:            return new RewriteTestAction();
 #else

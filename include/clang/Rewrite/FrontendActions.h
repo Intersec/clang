@@ -52,6 +52,12 @@ protected:
                                          StringRef InFile);
 };
 
+class RewriteBlocksAction : public ASTFrontendAction {
+protected:
+  virtual ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
+                                         llvm::StringRef InFile);
+};
+
 class RewriteMacrosAction : public PreprocessorFrontendAction {
 protected:
   void ExecuteAction();

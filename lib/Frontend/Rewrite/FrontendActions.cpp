@@ -166,6 +166,17 @@ ASTConsumer *RewriteObjCAction::CreateASTConsumer(CompilerInstance &CI,
 
 #endif
 
+ASTConsumer *RewriteBlocksAction::CreateASTConsumer(CompilerInstance &CI,
+                                                    StringRef InFile) {
+  llvm::Twine suffix("rw." + llvm::sys::path::extension(InFile));
+
+  if (llvm::raw_ostream *OS = CI.createDefaultOutputFile(false, InFile, suffix.str()))
+    return CreateBlocksRewriter(InFile, OS,
+                                CI.getDiagnostics(), CI.getLangOpts(),
+                                CI.getDiagnosticOpts().NoRewriteMacros);
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // Preprocessor Actions
 //===----------------------------------------------------------------------===//

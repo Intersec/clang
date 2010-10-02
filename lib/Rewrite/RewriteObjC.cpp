@@ -145,6 +145,7 @@ namespace {
     bool objc_impl_method;
     
     bool DisableReplaceStmt;
+    bool RewriteBlocksOnly;
     class DisableReplaceStmtScope {
       RewriteObjC &R;
       bool SavedValue;
@@ -187,7 +188,8 @@ namespace {
     void HandleDeclInMainFile(Decl *D);
     RewriteObjC(std::string inFile, raw_ostream *OS,
                 DiagnosticsEngine &D, const LangOptions &LOpts,
-                bool silenceMacroWarn);
+                bool silenceMacroWarn,
+                bool rewriteBlocksOnly = false);
 
     ~RewriteObjC() {}
 
@@ -502,9 +504,9 @@ namespace {
     
     RewriteObjCFragileABI(std::string inFile, raw_ostream *OS,
                 DiagnosticsEngine &D, const LangOptions &LOpts,
-                bool silenceMacroWarn) : RewriteObjC(inFile, OS,
+                bool silenceMacroWarn, bool rewriteBlocksOnly = false) : RewriteObjC(inFile, OS,
                                                      D, LOpts,
-                                                     silenceMacroWarn) {}
+                                                     silenceMacroWarn, rewriteBlocksOnly) {}
     
     ~RewriteObjCFragileABI() {}
     virtual void Initialize(ASTContext &context);
@@ -573,9 +575,10 @@ static bool IsHeaderFile(const std::string &Filename) {
 
 RewriteObjC::RewriteObjC(std::string inFile, raw_ostream* OS,
                          DiagnosticsEngine &D, const LangOptions &LOpts,
-                         bool silenceMacroWarn)
+                         bool silenceMacroWarn, bool rewriteBlocksOnly)
       : Diags(D), LangOpts(LOpts), InFileName(inFile), OutFile(OS),
-        SilenceRewriteMacroWarning(silenceMacroWarn) {
+        SilenceRewriteMacroWarning(silenceMacroWarn),
+        RewriteBlocksOnly(rewriteBlocksOnly) {
   IsHeader = IsHeaderFile(inFile);
   RewriteFailedDiag = Diags.getCustomDiagID(DiagnosticsEngine::Warning,
                "rewriting sub-expression within a macro (may not be correct)");
@@ -591,6 +594,14 @@ ASTConsumer *clang::CreateObjCRewriter(const std::string& InFile,
                                        const LangOptions &LOpts,
                                        bool SilenceRewriteMacroWarning) {
   return new RewriteObjCFragileABI(InFile, OS, Diags, LOpts, SilenceRewriteMacroWarning);
+}
+
+ASTConsumer *clang::CreateBlocksRewriter(const std::string& InFile,
+                                       llvm::raw_ostream* OS,
+                                       DiagnosticsEngine &Diags,
+                                       const LangOptions &LOpts,
+                                       bool SilenceRewriteMacroWarning) {
+  return new RewriteObjCFragileABI(InFile, OS, Diags, LOpts, SilenceRewriteMacroWarning, true);
 }
 
 void RewriteObjC::InitializeCommon(ASTContext &context) {
@@ -651,22 +662,24 @@ void RewriteObjC::HandleTopLevelSingleDecl(Decl *D) {
   if (Loc.isInvalid()) return;
 
   // Look for built-in declarations that we need to refer during the rewrite.
-  if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
-    RewriteFunctionDecl(FD);
-  } else if (VarDecl *FVD = dyn_cast<VarDecl>(D)) {
-    // declared in <Foundation/NSString.h>
-    if (FVD->getName() == "_NSConstantStringClassReference") {
-      ConstantStringClassReference = FVD;
-      return;
+  if (!RewriteBlocksOnly) {
+    if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
+      RewriteFunctionDecl(FD);
+    } else if (VarDecl *FVD = dyn_cast<VarDecl>(D)) {
+      // declared in <Foundation/NSString.h>
+      if (FVD->getName() == "_NSConstantStringClassReference") {
+        ConstantStringClassReference = FVD;
+        return;
+      }
+    } else if (ObjCInterfaceDecl *ID = dyn_cast<ObjCInterfaceDecl>(D)) {
+      if (ID->isThisDeclarationADefinition())
+        RewriteInterfaceDecl(ID);
+    } else if (ObjCCategoryDecl *CD = dyn_cast<ObjCCategoryDecl>(D)) {
+      RewriteCategoryDecl(CD);
+    } else if (ObjCProtocolDecl *PD = dyn_cast<ObjCProtocolDecl>(D)) {
+      if (PD->isThisDeclarationADefinition())
+        RewriteProtocolDecl(PD);
     }
-  } else if (ObjCInterfaceDecl *ID = dyn_cast<ObjCInterfaceDecl>(D)) {
-    if (ID->isThisDeclarationADefinition())
-      RewriteInterfaceDecl(ID);
-  } else if (ObjCCategoryDecl *CD = dyn_cast<ObjCCategoryDecl>(D)) {
-    RewriteCategoryDecl(CD);
-  } else if (ObjCProtocolDecl *PD = dyn_cast<ObjCProtocolDecl>(D)) {
-    if (PD->isThisDeclarationADefinition())
-      RewriteProtocolDecl(PD);
   } else if (LinkageSpecDecl *LSD = dyn_cast<LinkageSpecDecl>(D)) {
     // Recurse into linkage specifications
     for (DeclContext::decl_iterator DI = LSD->decls_begin(),
@@ -2091,6 +2104,8 @@ static void scanToNextArgument(const char *&argRef) {
 }
 
 bool RewriteObjC::needToScanForQualifiers(QualType T) {
+  if (RewriteBlocksOnly)
+    return false;
   if (T->isObjCQualifiedIdType())
     return true;
   if (const PointerType *PT = T->getAs<PointerType>()) {
@@ -2217,6 +2232,8 @@ void RewriteObjC::RewriteObjCQualifiedInterfaceTypes(Decl *Dcl) {
 }
 
 void RewriteObjC::RewriteTypeOfDecl(VarDecl *ND) {
+  if (RewriteBlocksOnly)
+    return;
   QualType QT = ND->getType();
   const Type* TypePtr = QT->getAs<Type>();
   if (!isa<TypeOfExprType>(TypePtr))
@@ -4954,6 +4971,9 @@ void RewriteObjC::HandleDeclInMainFile(Decl *D) {
       break;
     }
     case Decl::ObjCMethod: {
+      if (RewriteBlocksOnly) {
+        break;
+      }
       ObjCMethodDecl *MD = cast<ObjCMethodDecl>(D);
       if (CompoundStmt *Body = MD->getCompoundBody()) {
         CurMethodDef = MD;
@@ -4972,11 +4992,17 @@ void RewriteObjC::HandleDeclInMainFile(Decl *D) {
       break;
     }
     case Decl::ObjCImplementation: {
+      if (RewriteBlocksOnly) {
+        break;
+      }
       ObjCImplementationDecl *CI = cast<ObjCImplementationDecl>(D);
       ClassImplementation.push_back(CI);
       break;
     }
     case Decl::ObjCCategoryImpl: {
+      if (RewriteBlocksOnly) {
+        break;
+      }
       ObjCCategoryImplDecl *CI = cast<ObjCCategoryImplDecl>(D);
       CategoryImplementation.push_back(CI);
       break;
@@ -5044,7 +5070,8 @@ void RewriteObjC::HandleTranslationUnit(ASTContext &C) {
   if (Diags.hasErrorOccurred())
     return;
 
-  RewriteInclude();
+  if (!RewriteBlocksOnly)
+    RewriteInclude();
 
   // Here's a great place to add any extra declarations that may be needed.
   // Write out meta data for each @protocol(<expr>).
@@ -5066,13 +5093,15 @@ void RewriteObjC::HandleTranslationUnit(ASTContext &C) {
     llvm::errs() << "No changes\n";
   }
 
-  if (ClassImplementation.size() || CategoryImplementation.size() ||
-      ProtocolExprDecls.size()) {
-    // Rewrite Objective-c meta data*
-    std::string ResultStr;
-    RewriteMetaDataIntoBuffer(ResultStr);
-    // Emit metadata.
-    *OutFile << ResultStr;
+  if (!RewriteBlocksOnly) {
+    if (ClassImplementation.size() || CategoryImplementation.size() ||
+        ProtocolExprDecls.size()) {
+      // Rewrite Objective-c meta data*
+      std::string ResultStr;
+      RewriteMetaDataIntoBuffer(ResultStr);
+      // Emit metadata.
+      *OutFile << ResultStr;
+    }
   }
   OutFile->flush();
 }
@@ -5082,76 +5111,78 @@ void RewriteObjCFragileABI::Initialize(ASTContext &context) {
   
   // declaring objc_selector outside the parameter list removes a silly
   // scope related warning...
-  if (IsHeader)
-    Preamble = "#pragma once\n";
-  Preamble += "struct objc_selector; struct objc_class; struct objc_super;\n";
-  Preamble += "struct __rw_objc_super { struct objc_object *object; ";
-  Preamble += "struct objc_object *superClass; ";
-  if (LangOpts.MicrosoftExt) {
-    // Add a constructor for creating temporary objects.
-    Preamble += "__rw_objc_super(struct objc_object *o, struct objc_object *s) "
-    ": ";
-    Preamble += "object(o), superClass(s) {} ";
+  if (!RewriteBlocksOnly) {
+    if (IsHeader)
+      Preamble = "#pragma once\n";
+    Preamble += "struct objc_selector; struct objc_class; struct objc_super;\n";
+    Preamble += "struct __rw_objc_super { struct objc_object *object; ";
+    Preamble += "struct objc_object *superClass; ";
+    if (LangOpts.MicrosoftExt) {
+      // Add a constructor for creating temporary objects.
+      Preamble += "__rw_objc_super(struct objc_object *o, struct objc_object *s) "
+      ": ";
+      Preamble += "object(o), superClass(s) {} ";
+    }
+    Preamble += "};\n";
+    Preamble += "#ifndef _REWRITER_typedef_Protocol\n";
+    Preamble += "typedef struct objc_object Protocol;\n";
+    Preamble += "#define _REWRITER_typedef_Protocol\n";
+    Preamble += "#endif\n";
+    if (LangOpts.MicrosoftExt) {
+      Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\" __declspec(dllimport)\n";
+      Preamble += "#define __OBJC_RW_STATICIMPORT extern \"C\"\n";
+    } else
+      Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSend";
+    Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSendSuper";
+    Preamble += "(struct objc_super *, struct objc_selector *, ...);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_object* objc_msgSend_stret";
+    Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_object* objc_msgSendSuper_stret";
+    Preamble += "(struct objc_super *, struct objc_selector *, ...);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT double objc_msgSend_fpret";
+    Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_getClass";
+    Preamble += "(const char *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_class *class_getSuperclass";
+    Preamble += "(struct objc_class *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_getMetaClass";
+    Preamble += "(const char *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT void objc_exception_throw(struct objc_object *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT void objc_exception_try_enter(void *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT void objc_exception_try_exit(void *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_exception_extract(void *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT int objc_exception_match";
+    Preamble += "(struct objc_class *, struct objc_object *);\n";
+    // @synchronized hooks.
+    Preamble += "__OBJC_RW_DLLIMPORT void objc_sync_enter(struct objc_object *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT void objc_sync_exit(struct objc_object *);\n";
+    Preamble += "__OBJC_RW_DLLIMPORT Protocol *objc_getProtocol(const char *);\n";
+    Preamble += "#ifndef __FASTENUMERATIONSTATE\n";
+    Preamble += "struct __objcFastEnumerationState {\n\t";
+    Preamble += "unsigned long state;\n\t";
+    Preamble += "void **itemsPtr;\n\t";
+    Preamble += "unsigned long *mutationsPtr;\n\t";
+    Preamble += "unsigned long extra[5];\n};\n";
+    Preamble += "__OBJC_RW_DLLIMPORT void objc_enumerationMutation(struct objc_object *);\n";
+    Preamble += "#define __FASTENUMERATIONSTATE\n";
+    Preamble += "#endif\n";
+    Preamble += "#ifndef __NSCONSTANTSTRINGIMPL\n";
+    Preamble += "struct __NSConstantStringImpl {\n";
+    Preamble += "  int *isa;\n";
+    Preamble += "  int flags;\n";
+    Preamble += "  char *str;\n";
+    Preamble += "  long length;\n";
+    Preamble += "};\n";
+    Preamble += "#ifdef CF_EXPORT_CONSTANT_STRING\n";
+    Preamble += "extern \"C\" __declspec(dllexport) int __CFConstantStringClassReference[];\n";
+    Preamble += "#else\n";
+    Preamble += "__OBJC_RW_DLLIMPORT int __CFConstantStringClassReference[];\n";
+    Preamble += "#endif\n";
+    Preamble += "#define __NSCONSTANTSTRINGIMPL\n";
+    Preamble += "#endif\n";
   }
-  Preamble += "};\n";
-  Preamble += "#ifndef _REWRITER_typedef_Protocol\n";
-  Preamble += "typedef struct objc_object Protocol;\n";
-  Preamble += "#define _REWRITER_typedef_Protocol\n";
-  Preamble += "#endif\n";
-  if (LangOpts.MicrosoftExt) {
-    Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\" __declspec(dllimport)\n";
-    Preamble += "#define __OBJC_RW_STATICIMPORT extern \"C\"\n";
-  } else
-    Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSend";
-  Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSendSuper";
-  Preamble += "(struct objc_super *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object* objc_msgSend_stret";
-  Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object* objc_msgSendSuper_stret";
-  Preamble += "(struct objc_super *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT double objc_msgSend_fpret";
-  Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_getClass";
-  Preamble += "(const char *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_class *class_getSuperclass";
-  Preamble += "(struct objc_class *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_getMetaClass";
-  Preamble += "(const char *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_exception_throw(struct objc_object *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_exception_try_enter(void *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_exception_try_exit(void *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_exception_extract(void *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT int objc_exception_match";
-  Preamble += "(struct objc_class *, struct objc_object *);\n";
-  // @synchronized hooks.
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_sync_enter(struct objc_object *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_sync_exit(struct objc_object *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT Protocol *objc_getProtocol(const char *);\n";
-  Preamble += "#ifndef __FASTENUMERATIONSTATE\n";
-  Preamble += "struct __objcFastEnumerationState {\n\t";
-  Preamble += "unsigned long state;\n\t";
-  Preamble += "void **itemsPtr;\n\t";
-  Preamble += "unsigned long *mutationsPtr;\n\t";
-  Preamble += "unsigned long extra[5];\n};\n";
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_enumerationMutation(struct objc_object *);\n";
-  Preamble += "#define __FASTENUMERATIONSTATE\n";
-  Preamble += "#endif\n";
-  Preamble += "#ifndef __NSCONSTANTSTRINGIMPL\n";
-  Preamble += "struct __NSConstantStringImpl {\n";
-  Preamble += "  int *isa;\n";
-  Preamble += "  int flags;\n";
-  Preamble += "  char *str;\n";
-  Preamble += "  long length;\n";
-  Preamble += "};\n";
-  Preamble += "#ifdef CF_EXPORT_CONSTANT_STRING\n";
-  Preamble += "extern \"C\" __declspec(dllexport) int __CFConstantStringClassReference[];\n";
-  Preamble += "#else\n";
-  Preamble += "__OBJC_RW_DLLIMPORT int __CFConstantStringClassReference[];\n";
-  Preamble += "#endif\n";
-  Preamble += "#define __NSCONSTANTSTRINGIMPL\n";
-  Preamble += "#endif\n";
   // Blocks preamble.
   Preamble += "#ifndef BLOCK_IMPL\n";
   Preamble += "#define BLOCK_IMPL\n";
@@ -5187,9 +5218,11 @@ void RewriteObjCFragileABI::Initialize(ASTContext &context) {
     Preamble += "#define __block\n";
     Preamble += "#define __weak\n";
   }
-  // NOTE! Windows uses LLP64 for 64bit mode. So, cast pointer to long long
-  // as this avoids warning in any 64bit/32bit compilation model.
-  Preamble += "\n#define __OFFSETOFIVAR__(TYPE, MEMBER) ((long long) &((TYPE *)0)->MEMBER)\n";
+  if (!RewriteBlocksOnly) {
+    // NOTE! Windows uses LLP64 for 64bit mode. So, cast pointer to long long
+    // as this avoids warning in any 64bit/32bit compilation model.
+    Preamble += "\n#define __OFFSETOFIVAR__(TYPE, MEMBER) ((long long) &((TYPE *)0)->MEMBER)\n";
+  }
 }
 
 /// RewriteIvarOffsetComputation - This rutine synthesizes computation of
@@ -6040,4 +6073,3 @@ Stmt *RewriteObjCFragileABI::RewriteObjCIvarRefExpr(ObjCIvarRefExpr *IV) {
   ReplaceStmtWithRange(IV, Replacement, OldRange);
   return Replacement;  
 }
-

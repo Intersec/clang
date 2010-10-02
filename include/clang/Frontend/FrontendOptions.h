@@ -43,6 +43,7 @@ namespace frontend {
     PrintPreamble,          ///< Print the "preamble" of the input file
     PrintPreprocessedInput, ///< -E mode.
     RewriteMacros,          ///< Expand macros but not #includes.
+    RewriteBlocks,          ///< C+Blocks -> C Rewriter
     RewriteObjC,            ///< ObjC->C Rewriter.
     RewriteTest,            ///< Rewriter playground
     RunAnalysis,            ///< Run one or more source code analyses.

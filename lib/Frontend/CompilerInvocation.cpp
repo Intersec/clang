@@ -1454,6 +1454,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
       Opts.ProgramAction = frontend::TemplightDump; break;
     case OPT_rewrite_macros:
       Opts.ProgramAction = frontend::RewriteMacros; break;
+    case OPT_rewrite_blocks:
+      Opts.ProgramAction = frontend::RewriteBlocks; break;
     case OPT_rewrite_objc:
       Opts.ProgramAction = frontend::RewriteObjC; break;
     case OPT_rewrite_test:

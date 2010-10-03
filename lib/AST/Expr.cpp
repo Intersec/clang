@@ -2080,21 +2080,7 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
     // For example ({ blah; foo(); }) will end up with a type if foo has a type.
     // however, if the result of the stmt expr is dead, we don't want to emit a
     // warning.
-    const CompoundStmt *CS = cast<StmtExpr>(this)->getSubStmt();
-    if (!CS->body_empty()) {
-      if (const Expr *E = dyn_cast<Expr>(CS->body_back()))
-        return E->isUnusedResultAWarning(WarnE, Loc, R1, R2, Ctx);
-      if (const LabelStmt *Label = dyn_cast<LabelStmt>(CS->body_back()))
-        if (const Expr *E = dyn_cast<Expr>(Label->getSubStmt()))
-          return E->isUnusedResultAWarning(WarnE, Loc, R1, R2, Ctx);
-    }
-
-    if (getType()->isVoidType())
-      return false;
-    WarnE = this;
-    Loc = cast<StmtExpr>(this)->getLParenLoc();
-    R1 = getSourceRange();
-    return true;
+    return false;
   }
   case CXXFunctionalCastExprClass:
   case CStyleCastExprClass: {

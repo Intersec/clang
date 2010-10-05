@@ -24,7 +24,9 @@
 #include "llvm/Config/llvm-config.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/StringExtras.h"
 using namespace clang;
+using llvm::utostr;
 
 raw_ostream &RewriteBuffer::write(raw_ostream &os) const {
   // Walk RewriteRope chunks efficiently using MoveToNextPiece() instead of the
@@ -331,7 +333,8 @@ bool Rewriter::ReplaceText(SourceRange range, SourceRange replacementRange) {
 /// ReplaceStmt - This replaces a Stmt/Expr with another, using the pretty
 /// printer to generate the replacement code.  This returns true if the input
 /// could not be rewritten, or false if successful.
-bool Rewriter::ReplaceStmt(Stmt *From, Stmt *To) {
+bool Rewriter::ReplaceStmt(Stmt *From, Stmt *To,
+                           std::string File, bool doSharpLine) {
   assert(From != nullptr && To != nullptr && "Expected non-null Stmt's");
 
   // Measaure the old text.
@@ -346,6 +349,25 @@ bool Rewriter::ReplaceStmt(Stmt *From, Stmt *To) {
   const std::string &Str = S.str();
 
   ReplaceText(From->getLocStart(), Size, Str);
+  if (doSharpLine) {
+    unsigned f_lines = SourceMgr->getExpansionLineNumber(From->getLocEnd()) -
+      SourceMgr->getExpansionLineNumber(From->getLocStart());
+    unsigned t_lines = 0;
+    size_t pos = Str.find('\n');
+
+    while (pos != std::string::npos) {
+      t_lines++;
+      pos = Str.find('\n', pos + 1);
+    }
+
+    if (f_lines != t_lines) {
+      std::string S = "\n# line ";
+
+      S += utostr(SourceMgr->getExpansionLineNumber(From->getLocEnd()));
+      S += " \"" + File + "\"\n";
+      InsertText(From->getLocEnd(), S);
+    }
+  }
   return false;
 }
 

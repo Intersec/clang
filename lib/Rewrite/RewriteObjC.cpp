@@ -195,7 +195,7 @@ namespace {
 
     virtual void HandleTranslationUnit(ASTContext &C);
 
-    void ReplaceStmt(Stmt *Old, Stmt *New) {
+    void ReplaceStmt(Stmt *Old, Stmt *New, bool doSharpLine = false) {
       Stmt *ReplacingStmt = ReplacedNodes[Old];
 
       if (ReplacingStmt)
@@ -205,7 +205,7 @@ namespace {
         return;
 
       // If replacement succeeded or warning disabled return with no warning.
-      if (!Rewrite.ReplaceStmt(Old, New)) {
+      if (!Rewrite.ReplaceStmt(Old, New, InFileName, doSharpLine)) {
         ReplacedNodes[Old] = New;
         return;
       }
@@ -251,6 +251,20 @@ namespace {
         return;
 
       Diags.Report(Context->getFullLoc(Loc), RewriteFailedDiag);
+    }
+
+    std::string MakeSharpLine(SourceLocation Loc) {
+      std::string S;
+
+      S += "# line ";
+      S += utostr(SM->getExpansionLineNumber(Loc));
+      S += " \"" + InFileName + "\"\n";
+
+      return S;
+    }
+
+    void PutSharpLine(SourceLocation Start) {
+      Rewrite.InsertText(Start, MakeSharpLine(Start), true);
     }
 
     void ReplaceText(SourceLocation Start, unsigned OrigLength,
@@ -2356,7 +2370,7 @@ void RewriteObjC::RewriteBlockLiteralFunctionDecl(FunctionDecl *FD) {
     if (i+1 < numArgs)
       FdStr += ", ";
   }
-  FdStr +=  ");\n";
+  FdStr += ");\n";
   InsertText(FunLocStart, FdStr);
   CurFunctionDeclToDeclareForBlock = 0;
 }
@@ -3425,10 +3439,7 @@ std::string RewriteObjC::SynthesizeBlockFunc(BlockExpr *CE, int i,
                               (*I)->getNameAsString() + "; // bound by copy\n";
     }
   }
-  std::string RewrittenStr = RewrittenBlockExprs[CE];
-  const char *cstr = RewrittenStr.c_str();
-  while (*cstr++ != '{') ;
-  S += cstr;
+  S += RewrittenBlockExprs[CE];
   S += "\n";
   return S;
 }
@@ -3706,6 +3717,7 @@ void RewriteObjC::SynthesizeBlockLiterals(SourceLocation FunLocStart,
     std::string BD = SynthesizeBlockDescriptor(DescTag, ImplTag, i, FunName,
                                                ImportedBlockDecls.size() > 0);
     InsertText(FunLocStart, BD);
+    PutSharpLine(FunLocStart);
 
     BlockDeclRefs.clear();
     BlockByRefDecls.clear();
@@ -4760,12 +4772,15 @@ Stmt *RewriteObjC::RewriteFunctionBodyOrGlobalInitializer(Stmt *S) {
     ImportedLocalExternalDecls.clear();
     // Now we snarf the rewritten text and stash it away for later use.
     std::string Str = Rewrite.getRewrittenText(BE->getSourceRange());
-    RewrittenBlockExprs[BE] = Str;
+    llvm::StringRef Str2(::strchr(Str.c_str(), '{') + 1);
+
+    RewrittenBlockExprs[BE] = MakeSharpLine(BE->getSourceRange().getBegin())
+      + Str2.str();
 
     Stmt *blockTranscribed = SynthBlockInitExpr(BE, InnerBlockDeclRefs);
                             
     //blockTranscribed->dump();
-    ReplaceStmt(S, blockTranscribed);
+    ReplaceStmt(S, blockTranscribed, true);
     return blockTranscribed;
   }
   // Handle specific things.
@@ -4892,7 +4907,7 @@ Stmt *RewriteObjC::RewriteFunctionBodyOrGlobalInitializer(Stmt *S) {
   if (CallExpr *CE = dyn_cast<CallExpr>(S)) {
     if (CE->getCallee()->getType()->isBlockPointerType()) {
       Stmt *BlockCall = SynthesizeBlockCall(CE, CE->getCallee());
-      ReplaceStmt(S, BlockCall);
+      ReplaceStmt(S, BlockCall, true);
       return BlockCall;
     }
   }
@@ -5223,6 +5238,7 @@ void RewriteObjCFragileABI::Initialize(ASTContext &context) {
     // as this avoids warning in any 64bit/32bit compilation model.
     Preamble += "\n#define __OFFSETOFIVAR__(TYPE, MEMBER) ((long long) &((TYPE *)0)->MEMBER)\n";
   }
+  Preamble += "# line 1 \"" + InFileName + "\"\n";
 }
 
 /// RewriteIvarOffsetComputation - This rutine synthesizes computation of

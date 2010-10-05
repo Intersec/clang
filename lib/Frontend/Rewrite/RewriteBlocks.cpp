@@ -182,26 +182,19 @@ namespace {
     bool HandleTopLevelSingleDecl(Decl *D);
 
     void ReplaceStmt(Stmt *Old, Stmt *New, bool doSharpLine = false) {
-      Stmt *ReplacingStmt = ReplacedNodes[Old];
+      ReplaceStmtWithRange(Old, New, Old->getSourceRange(), InFileName,
+                           doSharpLine);
+    }
 
+    void ReplaceStmtWithRange(Stmt *Old, Stmt *New, SourceRange SrcRange,
+                              std::string File = "", bool doSharpLine = false)
+    {
+      assert(Old != nullptr && New != nullptr && "Expected non-null Stmt's");
+
+      Stmt *ReplacingStmt = ReplacedNodes[Old];
       if (ReplacingStmt)
         return; // We can't rewrite the same node twice.
 
-      if (DisableReplaceStmt)
-        return;
-
-      // If replacement succeeded or warning disabled return with no warning.
-      if (!Rewrite.ReplaceStmt(Old, New, InFileName, doSharpLine)) {
-        ReplacedNodes[Old] = New;
-        return;
-      }
-      if (SilenceRewriteMacroWarning)
-        return;
-      Diags.Report(Context->getFullLoc(Old->getLocStart()), RewriteFailedDiag)
-                   << Old->getSourceRange();
-    }
-
-    void ReplaceStmtWithRange(Stmt *Old, Stmt *New, SourceRange SrcRange) {
       if (DisableReplaceStmt)
         return;
 
@@ -215,7 +208,7 @@ namespace {
       // Get the new text.
       std::string SStr;
       llvm::raw_string_ostream S(SStr);
-      New->printPretty(S, 0, PrintingPolicy(LangOpts));
+      New->printPretty(S, nullptr, PrintingPolicy(LangOpts));
       const std::string &Str = S.str();
 
       // If replacement succeeded or warning disabled return with no warning.
@@ -223,10 +216,31 @@ namespace {
         ReplacedNodes[Old] = New;
         return;
       }
+      if (doSharpLine) {
+        unsigned f_lines =
+            Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocEnd()) -
+            Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocStart());
+          unsigned t_lines = 0;
+          size_t pos = Str.find('\n');
+
+          while (pos != std::string::npos) {
+              t_lines++;
+              pos = Str.find('\n', pos + 1);
+          }
+
+          if (f_lines != t_lines) {
+              std::string S = "\n# line ";
+
+              S += utostr(Rewrite.getSourceMgr().getExpansionLineNumber(
+                  Old->getLocEnd()));
+              S += " \"" + File + "\"\n";
+              InsertText(Old->getLocEnd(), S);
+          }
+      }
       if (SilenceRewriteMacroWarning)
-        return;
+          return;
       Diags.Report(Context->getFullLoc(Old->getLocStart()), RewriteFailedDiag)
-                   << Old->getSourceRange();
+          << Old->getSourceRange();
     }
 
     void InsertText(SourceLocation Loc, StringRef Str,

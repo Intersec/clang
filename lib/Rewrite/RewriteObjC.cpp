@@ -2370,6 +2370,8 @@ void RewriteObjC::RewriteBlockLiteralFunctionDecl(FunctionDecl *FD) {
     if (i+1 < numArgs)
       FdStr += ", ";
   }
+  if (numArgs == 0)
+    FdStr += "void";
   FdStr += ");\n";
   InsertText(FunLocStart, FdStr);
   CurFunctionDeclToDeclareForBlock = 0;

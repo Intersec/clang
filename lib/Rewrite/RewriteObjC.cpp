@@ -3663,7 +3663,8 @@ std::string RewriteObjC::SynthesizeBlockDescriptor(std::string DescTag,
 void RewriteObjC::SynthesizeBlockLiterals(SourceLocation FunLocStart,
                                           StringRef FunName) {
   // Insert declaration for the function in which block literal is used.
-  if (CurFunctionDeclToDeclareForBlock && !Blocks.empty())
+  if (CurFunctionDeclToDeclareForBlock && !Blocks.empty()
+      && CurFunctionDeclToDeclareForBlock->getStorageClass() == SC_Static)
     RewriteBlockLiteralFunctionDecl(CurFunctionDeclToDeclareForBlock);
   bool RewriteSC = (GlobalVarDecl &&
                     !Blocks.empty() &&
@@ -4325,7 +4326,8 @@ std::string RewriteObjC::SynthesizeByrefCopyDestroyHelper(VarDecl *VD,
 void RewriteObjC::RewriteByRefVar(VarDecl *ND) {
   // Insert declaration for the function in which block literal is
   // used.
-  if (CurFunctionDeclToDeclareForBlock)
+  if (CurFunctionDeclToDeclareForBlock
+      && CurFunctionDeclToDeclareForBlock->getStorageClass() == SC_Static)
     RewriteBlockLiteralFunctionDecl(CurFunctionDeclToDeclareForBlock);
   int flag = 0;
   int isa = 0;

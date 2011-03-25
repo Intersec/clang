@@ -690,6 +690,10 @@ void RewriteObjC::Initialize(ASTContext &context) {
   Preamble += "  int Flags;\n";
   Preamble += "  int Reserved;\n";
   Preamble += "  void *FuncPtr;\n";
+  Preamble += "#ifdef __cplusplus\n";
+  Preamble += "  __block_impl(void *_isa, int _flags, void *_fp)\n";
+  Preamble += "    : isa(_isa), Flags(_flags), Reserved(0), FuncPtr(_fp) { }\n";
+  Preamble += "#endif\n";
   Preamble += "};\n";
   Preamble += "// Runtime copy/destroy helper functions (from Block_private.h)\n";
   Preamble += "#ifdef __OBJC_EXPORT_BLOCKS\n";
@@ -4466,27 +4470,25 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
         RewriteByRefString(TypeString, FieldName, (*I));
         TypeString += " *";
         FieldName = TypeString + FieldName;
-        ArgName = TypeString + ArgName;
         cConstructor += ", " + ArgName;
+        ArgName = TypeString + ArgName;
         Constructor += ", " + ArgName;
       }
       S += FieldName + "; // by ref\n";
     }
     // Finish writing the constructor.
     Constructor += ", int flags=0)";
+    Constructor += " : impl(";
+    Constructor += GlobalVarDecl ? "&_NSConcreteGlobalBlock, "
+                                 : "&_NSConcreteStackBlock, ";
+    Constructor += "flags, fp), Desc(desc)";
     cConstructor += ", flags) \\\n";
-    cConstructor += "  ((struct " + Tag + "){ \\\n";
+    cConstructor += "  &((struct " + Tag + "){ \\\n";
     // Initialize all "by copy" arguments.
-    bool firsTime = true;
     for (SmallVector<ValueDecl*,8>::iterator I = BlockByCopyDecls.begin(),
          E = BlockByCopyDecls.end(); I != E; ++I) {
       std::string Name = (*I)->getNameAsString();
-        if (firsTime) {
-          Constructor += " : ";
-          firsTime = false;
-        }
-        else
-          Constructor += ", ";
+        Constructor += ", ";
         cConstructor += "    ." + Name + " = ";
         if (isTopLevelBlockPointerType((*I)->getType())) {
           Constructor += Name + "((struct __block_impl *)_" + Name + ")";
@@ -4500,37 +4502,28 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     for (SmallVector<ValueDecl*,8>::iterator I = BlockByRefDecls.begin(),
          E = BlockByRefDecls.end(); I != E; ++I) {
       std::string Name = (*I)->getNameAsString();
-      if (firsTime) {
-        Constructor += " : ";
-        firsTime = false;
-      }
-      else
-        Constructor += ", ";
+      cConstructor += "    ." + Name + " = ";
       Constructor += Name + "(_" + Name + "->__forwarding)";
-      cConstructor += "    ." + Name + " = ((_"
-          + Name + ")->__forwarding), \\\n";
+      cConstructor += "((_" + Name + ")->__forwarding), \\\n";
     }
-
-    Constructor += " {\n";
   } else {
     // Finish writing the constructor.
-    Constructor += ", int flags=0) {\n";
+    Constructor += ", int flags=0)\n";
+    Constructor += " : impl(";
+    Constructor += GlobalVarDecl ? "&_NSConcreteGlobalBlock, "
+                                 : "&_NSConcreteStackBlock, ";
+    Constructor += "flags, fp), Desc(desc)";
     cConstructor += ", flags) \\\n";
-    cConstructor += "  ((struct " + Tag + "){ \\\n";
+    cConstructor += "  &((struct " + Tag + "){ \\\n";
   }
 
+  Constructor  += " { }\n";
   cConstructor += "    .impl = { \\\n";
   if (GlobalVarDecl) {
-    Constructor  += "    impl.isa = &_NSConcreteGlobalBlock;\n";
     cConstructor += "      .isa = &_NSConcreteGlobalBlock, \\\n";
   } else {
-    Constructor += "    impl.isa = &_NSConcreteStackBlock;\n";
     cConstructor += "      .isa = &_NSConcreteStackBlock, \\\n";
   }
-  Constructor  += "    impl.Flags = flags;\n    impl.FuncPtr = fp;\n";
-  Constructor += "    Desc = desc;\n";
-  Constructor += "  ";
-  Constructor += "}\n";
   cConstructor +=
     "      .Flags = (flags), \\\n"
     "      .FuncPtr = (fp), \\\n"
@@ -4540,6 +4533,10 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
 
   S += "#ifdef __cplusplus\n";
   S += Constructor;
+  S += "\n";
+  S += "  operator void *() {\n";
+  S += "    return (void *)this;\n";
+  S += "  }\n";
   S += "#else\n";
   S += cConstructor;
   S += "#endif\n";
@@ -5984,6 +5981,13 @@ void RewriteObjC::RewriteRecordBody(RecordDecl *RD) {
 /// HandleDeclInMainFile - This is called for each top-level decl defined in the
 /// main file of the input.
 void RewriteObjC::HandleDeclInMainFile(Decl *D) {
+  if (NamespaceDecl *NSD = dyn_cast<NamespaceDecl>(D)) {
+    // Recurse into linkage specifications
+    for (DeclContext::decl_iterator DI = NSD->decls_begin(),
+                                 DIEnd = NSD->decls_end();
+         DI != DIEnd; ++DI)
+      HandleDeclInMainFile(*DI);
+  }
   if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     if (FD->isOverloadedOperator())
       return;

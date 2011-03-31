@@ -4262,7 +4262,6 @@ void RewriteObjC::RewriteByRefString(std::string &ResultStr,
                                      ValueDecl *VD, bool def) {
   assert(BlockByRefDeclNo.count(VD) && 
          "RewriteByRefString: ByRef decl missing");
-  if (def)
     ResultStr += "struct ";
   ResultStr += "__Block_byref_" + Name + 
     "_" + utostr(BlockByRefDeclNo[VD]) ;

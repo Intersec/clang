@@ -4686,9 +4686,8 @@ Stmt *RewriteObjC::SynthBlockInitExpr(BlockExpr *Exp,
 
   NewRep = new (Context) CallExpr(*Context, DRE, &InitExprs[0], InitExprs.size(),
                                   FType, VK_LValue, SourceLocation());
-  NewRep = new (Context) UnaryOperator(NewRep, UO_AddrOf,
-                             Context->getPointerType(NewRep->getType()),
-                             VK_RValue, OK_Ordinary, SourceLocation());
+  NewRep = NoTypeInfoCStyleCastExpr(Context, Context->VoidPtrTy,
+                                    CK_BitCast, NewRep);
   NewRep = NoTypeInfoCStyleCastExpr(Context, FType, CK_BitCast,
                                     NewRep);
   BlockDeclRefs.clear();

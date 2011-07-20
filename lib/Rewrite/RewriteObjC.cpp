@@ -5130,6 +5130,16 @@ void RewriteObjCFragileABI::Initialize(ASTContext &context) {
   
   // declaring objc_selector outside the parameter list removes a silly
   // scope related warning...
+  if (LangOpts.MicrosoftExt) {
+    Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\" __declspec(dllimport)\n";
+    Preamble += "#define __OBJC_RW_STATICIMPORT extern \"C\"\n";
+  } else {
+    Preamble += "#ifdef __cplusplus\n";
+    Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\"\n";
+    Preamble += "#else\n";
+    Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
+    Preamble += "#endif\n";
+  }
   if (!RewriteBlocksOnly) {
     if (IsHeader)
       Preamble = "#pragma once\n";
@@ -5147,11 +5157,6 @@ void RewriteObjCFragileABI::Initialize(ASTContext &context) {
     Preamble += "typedef struct objc_object Protocol;\n";
     Preamble += "#define _REWRITER_typedef_Protocol\n";
     Preamble += "#endif\n";
-    if (LangOpts.MicrosoftExt) {
-      Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\" __declspec(dllimport)\n";
-      Preamble += "#define __OBJC_RW_STATICIMPORT extern \"C\"\n";
-    } else
-      Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
     Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSend";
     Preamble += "(struct objc_object *, struct objc_selector *, ...);\n";
     Preamble += "__OBJC_RW_DLLIMPORT struct objc_object *objc_msgSendSuper";

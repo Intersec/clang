@@ -613,8 +613,13 @@ void RewriteObjC::Initialize(ASTContext &context) {
   if (LangOpts.MicrosoftExt) {
     Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\" __declspec(dllimport)\n";
     Preamble += "#define __OBJC_RW_STATICIMPORT extern \"C\"\n";
-  } else
+  } else {
+    Preamble += "#ifdef __cplusplus\n";
+    Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\"\n";
+    Preamble += "#else\n";
     Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
+    Preamble += "#endif\n";
+  }
   if (!RewriteBlocksOnly) {
     if (IsHeader)
       Preamble = "#pragma once\n";

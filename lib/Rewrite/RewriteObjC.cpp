@@ -3506,7 +3506,7 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
   Constructor += "(void *fp, "; // Invoke function pointer.
   Constructor += "struct " + Desc; // Descriptor pointer.
   Constructor += " *desc";
-  cConstructor += "(fp, desc";
+  cConstructor += "(__blk_fp, __blk_desc";
 
   if (BlockDeclRefs.size()) {
     // Output all "by copy" declarations.
@@ -3562,7 +3562,7 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     Constructor += GlobalVarDecl ? "&_NSConcreteGlobalBlock, "
                                  : "&_NSConcreteStackBlock, ";
     Constructor += "flags, fp), Desc(desc)";
-    cConstructor += ", flags) \\\n";
+    cConstructor += ", __blk_flags) \\\n";
     cConstructor += "  &((struct " + Tag + "){ \\\n";
     // Initialize all "by copy" arguments.
     for (SmallVector<ValueDecl*,8>::iterator I = BlockByCopyDecls.begin(),
@@ -3593,7 +3593,7 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     Constructor += GlobalVarDecl ? "&_NSConcreteGlobalBlock, "
                                  : "&_NSConcreteStackBlock, ";
     Constructor += "flags, fp), Desc(desc)";
-    cConstructor += ", flags) \\\n";
+    cConstructor += ", __blk_flags) \\\n";
     cConstructor += "  &((struct " + Tag + "){ \\\n";
   }
 
@@ -3605,10 +3605,10 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     cConstructor += "      .isa = &_NSConcreteStackBlock, \\\n";
   }
   cConstructor +=
-    "      .Flags = (flags), \\\n"
-    "      .FuncPtr = (fp), \\\n"
+    "      .Flags = (__blk_flags), \\\n"
+    "      .FuncPtr = (__blk_fp), \\\n"
     "    }, \\\n"
-    "    .Desc = (desc), \\\n"
+    "    .Desc = (__blk_desc), \\\n"
     "  })\n";
 
   S += "#ifdef __cplusplus\n";

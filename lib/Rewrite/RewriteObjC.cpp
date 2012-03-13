@@ -3582,6 +3582,7 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     for (SmallVector<ValueDecl*,8>::iterator I = BlockByRefDecls.begin(),
          E = BlockByRefDecls.end(); I != E; ++I) {
       std::string Name = (*I)->getNameAsString();
+      Constructor += ", ";
       cConstructor += "    ." + Name + " = ";
       Constructor += Name + "(_" + Name + "->__forwarding)";
       cConstructor += "((_" + Name + ")->__forwarding), \\\n";
@@ -4341,6 +4342,10 @@ void RewriteObjC::RewriteByRefVar(VarDecl *ND) {
   ByrefType += " *__forwarding;\n";
   ByrefType += " int __flags;\n";
   ByrefType += " int __size;\n";
+  ByrefType += "#ifdef __cplusplus\n";
+  ByrefType += "  ~__Block_byref_" + Name + "_" + utostr(BlockByRefDeclNo[ND])
+      + "() { _Block_byref_dispose(this); }\n";
+  ByrefType += "#endif\n";
   // Add void *__Block_byref_id_object_copy; 
   // void *__Block_byref_id_object_dispose; if needed.
   QualType Ty = ND->getType();
@@ -4396,7 +4401,7 @@ void RewriteObjC::RewriteByRefVar(VarDecl *ND) {
   std::string ForwardingCastType("(");
   ForwardingCastType += ByrefType + " *)";
   if (!hasInit) {
-    ByrefType += " " + Name + " = {(void*)";
+    ByrefType += " _Block_byref_cleanup " + Name + " = {(void*)";
     ByrefType += utostr(isa);
     ByrefType += "," +  ForwardingCastType + "&" + Name + ", ";
     ByrefType += utostr(flags);
@@ -4427,7 +4432,7 @@ void RewriteObjC::RewriteByRefVar(VarDecl *ND) {
       startLoc = E->getLocStart();
     startLoc = SM->getExpansionLoc(startLoc);
     endBuf = SM->getCharacterData(startLoc);
-    ByrefType += " " + Name;
+    ByrefType += " _Block_byref_cleanup " + Name;
     ByrefType += " = {(void*)";
     ByrefType += utostr(isa);
     ByrefType += "," +  ForwardingCastType + "&" + Name + ", ";
@@ -5232,6 +5237,14 @@ void RewriteObjCFragileABI::Initialize(ASTContext &context) {
   Preamble += "__OBJC_RW_DLLIMPORT void _Block_object_dispose(const void *, const int);\n";
   Preamble += "__OBJC_RW_DLLIMPORT void *_NSConcreteGlobalBlock[32];\n";
   Preamble += "__OBJC_RW_DLLIMPORT void *_NSConcreteStackBlock[32];\n";
+  Preamble += "#endif\n";
+  Preamble += "static inline void _Block_byref_dispose(const void *obj) {\n";
+  Preamble += "    _Block_object_dispose(obj, /*BLOCK_FIELD_IS_BYREF*/8);\n";
+  Preamble += "}\n";
+  Preamble += "#ifdef __cplusplus\n";
+  Preamble += "#define _Block_byref_cleanup\n";
+  Preamble += "#else\n";
+  Preamble += "#define _Block_byref_cleanup __attribute__((cleanup(_Block_byref_dispose)))\n";
   Preamble += "#endif\n";
   Preamble += "#endif\n";
   if (LangOpts.MicrosoftExt) {

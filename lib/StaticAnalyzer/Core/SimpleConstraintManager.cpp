@@ -139,6 +139,11 @@ ProgramStateRef SimpleConstraintManager::assumeAuxForSymbol(
                                               SymbolRef Sym,
                                               bool Assumption) {
   QualType T =  State->getSymbolManager().getType(Sym);
+
+  // None of the constraint solvers currently support non-integer types.
+  if (!T->isIntegerType())
+    return State;
+
   const llvm::APSInt &zero = State->getBasicVals().getValue(0, T);
   if (Assumption)
     return assumeSymNE(State, Sym, zero, zero);

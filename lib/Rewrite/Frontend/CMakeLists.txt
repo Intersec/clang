@@ -6,6 +6,7 @@ add_clang_library(clangRewriteFrontend
   RewriteMacros.cpp
   RewriteModernObjC.cpp
   RewriteObjC.cpp
+  RewriteBlocks.cpp
   RewriteTest.cpp
   )
 

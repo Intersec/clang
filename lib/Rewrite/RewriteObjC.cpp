@@ -610,14 +610,6 @@ ASTConsumer *clang::CreateObjCRewriter(const std::string& InFile,
   return new RewriteObjCFragileABI(InFile, OS, Diags, LOpts, SilenceRewriteMacroWarning);
 }
 
-ASTConsumer *clang::CreateBlocksRewriter(const std::string& InFile,
-                                       llvm::raw_ostream* OS,
-                                       DiagnosticsEngine &Diags,
-                                       const LangOptions &LOpts,
-                                       bool SilenceRewriteMacroWarning) {
-  return new RewriteObjCFragileABI(InFile, OS, Diags, LOpts, SilenceRewriteMacroWarning, true);
-}
-
 void RewriteObjC::InitializeCommon(ASTContext &context) {
   Context = &context;
   SM = &Context->getSourceManager();

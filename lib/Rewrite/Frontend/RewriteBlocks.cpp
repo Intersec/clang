@@ -150,7 +150,7 @@ namespace {
     void RewriteCastExpr(CStyleCastExpr *CE);
     void RewriteRecordBody(RecordDecl *RD);
     void CheckFunctionPointerDecl(QualType funcType, NamedDecl *ND);
-    Stmt *RewriteStatement(Stmt *S);
+    Stmt *RewriteStatement(Stmt *S, CompoundStmt *CS);
     void RewriteBlockLiteralFunctionDecl(FunctionDecl *FD);
     void RewriteByRefString(std::string &ResultStr,
                             const std::string &Name,
@@ -172,7 +172,8 @@ namespace {
     FunctionDecl *SynthBlockInitFunctionDecl(StringRef name);
     Stmt *SynthesizeBlockCall(CallExpr *Exp, const Expr *BlockExp);
     Stmt *SynthBlockInitExpr(BlockExpr *Exp,
-                             const SmallVector<DeclRefExpr *, 8> &InnerBlockDeclRefs);
+                             const SmallVector<DeclRefExpr *, 8> &InnerBlockDeclRefs,
+                             CompoundStmt *CS);
     void SynthesizeBlockLiterals(SourceLocation FunLocStart, StringRef FunName);
     void InsertBlockLiteralsWithinFunction(FunctionDecl *FD);
     void CollectBlockDeclRefInfo(BlockExpr *Exp);
@@ -359,6 +360,7 @@ void RewriteBlocks::Initialize(ASTContext &context)
   Preamble += "    _Block_object_dispose(obj, /*BLOCK_FIELD_IS_BYREF*/8);\n";
   Preamble += "}\n";
   Preamble += "#ifdef __cplusplus\n";
+  Preamble += "#include <new>\n";
   Preamble += "#define _Block_byref_cleanup\n";
   Preamble += "#else\n";
   Preamble += "#define _Block_byref_cleanup __attribute__((cleanup(_Block_byref_dispose)))\n";
@@ -1310,7 +1312,7 @@ std::string RewriteBlocks::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
                                  : "&_NSConcreteStackBlock, ";
     Constructor += "flags, fp), Desc(desc)";
     cConstructor += ", __blk_flags) \\\n";
-    cConstructor += "  &((struct " + Tag + "){ \\\n";
+    cConstructor += "  { \\\n";
     // Initialize all "by copy" arguments.
     for (SmallVector<ValueDecl*,8>::iterator I = BlockByCopyDecls.begin(),
          E = BlockByCopyDecls.end(); I != E; ++I) {
@@ -1342,7 +1344,7 @@ std::string RewriteBlocks::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
                                  : "&_NSConcreteStackBlock, ";
     Constructor += "flags, fp), Desc(desc)";
     cConstructor += ", __blk_flags) \\\n";
-    cConstructor += "  &((struct " + Tag + "){ \\\n";
+    cConstructor += "  { \\\n";
   }
 
   Constructor  += " { }\n";
@@ -1357,16 +1359,26 @@ std::string RewriteBlocks::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     "      .FuncPtr = (__blk_fp), \\\n"
     "    }, \\\n"
     "    .Desc = (__blk_desc), \\\n"
-    "  })\n";
+    "  }\n";
 
   S += "#ifdef __cplusplus\n";
   S += Constructor;
-  S += "\n";
-  S += "  operator void *() {\n";
-  S += "    return (void *)this;\n";
-  S += "  }\n";
+  S += "  " + Tag + "() : impl(NULL, 0, NULL) { }\n";
+  if (!GlobalVarDecl) {
+      S += "#define " + Tag + "__INST(...)  (new((void *)&" + Tag + "__VAR) " + Tag + "(__VA_ARGS__))\n";
+  } else {
+      S += "#define " + Tag + "__INST(...)  (&" + Tag + "__VAR)\n";
+  }
   S += "#else\n";
   S += cConstructor;
+  if (!GlobalVarDecl) {
+      S += "#define " + Tag + "__INST(...)  ({ \\\n";
+      S += "    memcpy(&" + Tag + "__VAR, &(struct " + Tag + ")" + Tag + "(__VA_ARGS__), sizeof(" + Tag + "__VAR)); \\\n";
+      S += "    &" + Tag + "__VAR; \\\n";
+      S += "  })\n";
+  } else {
+      S += "#define " + Tag + "__INST(...)  (&" + Tag + "__VAR)\n";
+  }
   S += "#endif\n";
   S += "};\n";
   return S;
@@ -1444,6 +1456,7 @@ void RewriteBlocks::SynthesizeBlockLiterals(SourceLocation FunLocStart,
 
     std::string ImplTag = "__" + FunName.str() + "_block_impl_" + utostr(i);
     std::string DescTag = "__" + FunName.str() + "_block_desc_" + utostr(i);
+    std::string FuncTag = "__" + FunName.str() + "_block_func_" + utostr(i);
 
     std::string CI = SynthesizeBlockImpl(Blocks[i], ImplTag, DescTag);
 
@@ -1461,6 +1474,17 @@ void RewriteBlocks::SynthesizeBlockLiterals(SourceLocation FunLocStart,
                                                ImportedBlockDecls.size() > 0);
     InsertText(FunLocStart, BD);
     PutSharpLine(FunLocStart);
+
+    if (GlobalVarDecl) {
+      std::string S;
+      std::string Args = "(void *)" + FuncTag + ", &" + DescTag + "_DATA, 0";
+      S += "#ifdef __cplusplus\n";
+      S += "static struct " + ImplTag + " " + ImplTag + "__VAR(" + Args + ");\n";
+      S += "#else\n";
+      S += "static struct " + ImplTag + " " + ImplTag + "__VAR = " + ImplTag + "(" + Args + ");\n";
+      S += "#endif\n";
+      InsertText(FunLocStart, S);
+    }
 
     BlockDeclRefs.clear();
     BlockByRefDecls.clear();
@@ -1499,7 +1523,8 @@ FunctionDecl *RewriteBlocks::SynthBlockInitFunctionDecl(StringRef name) {
 }
 
 Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
-                                        const SmallVector<DeclRefExpr *, 8> &InnerBlockDeclRefs) {
+                                        const SmallVector<DeclRefExpr *, 8> &InnerBlockDeclRefs,
+                                        CompoundStmt *CS) {
   const BlockDecl *block = Exp->getBlockDecl();
   Blocks.push_back(Exp);
 
@@ -1555,7 +1580,7 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
   Expr *NewRep;
 
   // Simulate a contructor call...
-  FD = SynthBlockInitFunctionDecl(Tag);
+  FD = SynthBlockInitFunctionDecl(Tag + "__INST");
   DeclRefExpr *DRE = new (Context) DeclRefExpr(FD, false, FType, VK_RValue,
                                                SourceLocation());
 
@@ -1653,6 +1678,12 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
       Exp = NoTypeInfoCStyleCastExpr(Context, castT, CK_BitCast, Exp);
       InitExprs.push_back(Exp);
     }
+  }
+
+  if (CS) {
+    std::string Var     = Tag + "__VAR";
+    std::string VarDecl = "struct " + Tag + " " + Var + ";\n";
+    InsertText(CS->getLocStart().getLocWithOffset(1), VarDecl, false);
   }
 
   int flag = 0;
@@ -1804,7 +1835,7 @@ void RewriteBlocks::HandleDeclInMainFile(Decl *D)
         CurFunctionDef = FD;
         CurFunctionDeclToDeclareForBlock = FD;
         CurrentBody = Body;
-        Body = cast<CompoundStmt>(RewriteStatement(Body));
+        Body = cast<CompoundStmt>(RewriteStatement(Body, Body));
         FD->setBody(Body);
         CurrentBody = NULL;
         InsertBlockLiteralsWithinFunction(FD);
@@ -1832,7 +1863,7 @@ void RewriteBlocks::HandleDeclInMainFile(Decl *D)
       if (VD->getInit()) {
         GlobalVarDecl = VD;
         CurrentBody = VD->getInit();
-        RewriteStatement(VD->getInit());
+        RewriteStatement(VD->getInit(), NULL);
         CurrentBody = 0;
         SynthesizeBlockLiterals(VD->getTypeSpecStartLoc(), VD->getName());
         GlobalVarDecl = 0;
@@ -1875,15 +1906,16 @@ void RewriteBlocks::HandleDeclInMainFile(Decl *D)
   }
 }
 
-Stmt *RewriteBlocks::RewriteStatement(Stmt *S)
+Stmt *RewriteBlocks::RewriteStatement(Stmt *S, CompoundStmt *CS)
 {
-  SourceRange OrigStmtRange = S->getSourceRange();
+  //SourceRange OrigStmtRange = S->getSourceRange();
 
   // Perform a bottom up rewrite of all children.
   for (Stmt::child_range CI = S->children(); CI; ++CI)
     if (*CI) {
       Stmt *childStmt = (*CI);
-      Stmt *newStmt = RewriteStatement(childStmt);
+      CompoundStmt *cp = dyn_cast<CompoundStmt>(childStmt);
+      Stmt *newStmt = RewriteStatement(childStmt, cp ? cp : CS);
       if (newStmt) {
         *CI = newStmt;
       }
@@ -1906,7 +1938,8 @@ Stmt *RewriteBlocks::RewriteStatement(Stmt *S)
     // block literal; as in: self.c = ^() {[ace ARR];};
     bool saveDisableReplaceStmt = DisableReplaceStmt;
     DisableReplaceStmt = false;
-    RewriteStatement(BE->getBody());
+    CompoundStmt *cp = cast_or_null<CompoundStmt>(BE->getBody());
+    RewriteStatement(cp, cp);
     DisableReplaceStmt = saveDisableReplaceStmt;
     CurrentBody = SaveCurrentBody;
     ImportedLocalExternalDecls.clear();
@@ -1917,7 +1950,7 @@ Stmt *RewriteBlocks::RewriteStatement(Stmt *S)
     RewrittenBlockExprs[BE] = MakeSharpLine(BE->getSourceRange().getBegin())
       + Str2.str();
 
-    Stmt *blockTranscribed = SynthBlockInitExpr(BE, InnerBlockDeclRefs);
+    Stmt *blockTranscribed = SynthBlockInitExpr(BE, InnerBlockDeclRefs, CS);
                             
     //blockTranscribed->dump();
     ReplaceStmt(S, blockTranscribed, true);

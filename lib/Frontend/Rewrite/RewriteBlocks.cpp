@@ -661,7 +661,8 @@ void RewriteBlocks::RewriteBlockPointerFunctionArgs(FunctionDecl *FD) {
   const char *startBuf = SM->getCharacterData(DeclLoc);
   const char *startArgList = strchr(startBuf, '(');
 
-  assert((*startArgList == '(') && "Rewriter fuzzy parser confused");
+  if (!startArgList)
+      return;
 
   parenCount++;
   // advance the location to startArgList.

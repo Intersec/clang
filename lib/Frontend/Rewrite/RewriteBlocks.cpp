@@ -253,13 +253,15 @@ namespace {
     }
 
     void ReplaceText(SourceLocation Start, unsigned OrigLength,
-                     StringRef Str) {
+                     StringRef Str, bool warn) {
       // If removal succeeded or warning disabled return with no warning.
       if (!Rewrite.ReplaceText(Start, OrigLength, Str) ||
           SilenceRewriteMacroWarning)
         return;
 
-      Diags.Report(Context->getFullLoc(Start), RewriteFailedDiag);
+      if (warn) {
+          Diags.Report(Context->getFullLoc(Start), RewriteFailedDiag);
+      }
     }
   };
 }
@@ -648,7 +650,9 @@ void RewriteBlocks::RewriteBlockPointerDecl(NamedDecl *ND) {
     buf += ')';
     OrigLength++;
   }
-  ReplaceText(Start, OrigLength, buf);
+  /* intersec: disable warnings here we handle the carret rewriting
+   * ourselves with the BLOCK_CARET macro */
+  ReplaceText(Start, OrigLength, buf, false);
 
   return;
 }
@@ -676,7 +680,9 @@ void RewriteBlocks::RewriteBlockPointerFunctionArgs(FunctionDecl *FD) {
     case '^':
       // Replace the '^' with '*'.
       DeclLoc = DeclLoc.getLocWithOffset(argPtr-startArgList);
-      ReplaceText(DeclLoc, 1, "*");
+      /* intersec: disable warnings here we handle the carret rewriting
+       * ourselves with the BLOCK_CARET macro */
+      ReplaceText(DeclLoc, 1, "*", false);
       break;
     case '(':
       parenCount++;
@@ -953,7 +959,7 @@ void RewriteBlocks::RewriteByRefVar(VarDecl *ND) {
     // part of the declaration.
     if (Ty->isBlockPointerType() || Ty->isFunctionPointerType())
       nameSize = 1;
-    ReplaceText(DeclLoc, endBuf-startBuf+nameSize, ByrefType);
+    ReplaceText(DeclLoc, endBuf-startBuf+nameSize, ByrefType, true);
   }
   else {
     SourceLocation startLoc;
@@ -980,7 +986,7 @@ void RewriteBlocks::RewriteByRefVar(VarDecl *ND) {
       ByrefType += utostr(flag);
       ByrefType += ", ";
     }
-    ReplaceText(DeclLoc, endBuf-startBuf, ByrefType);
+    ReplaceText(DeclLoc, endBuf-startBuf, ByrefType, true);
     
     // Complete the newly synthesized compound expression by inserting a right
     // curly brace before the end of the declaration.
@@ -1079,7 +1085,7 @@ void RewriteBlocks::RewriteCastExpr(CStyleCastExpr *CE) {
     std::string TypeAsString = "(";
     RewriteBlockPointerType(TypeAsString, QT);
     TypeAsString += ")";
-    ReplaceText(LocStart, endBuf-startBuf+1, TypeAsString);
+    ReplaceText(LocStart, endBuf-startBuf+1, TypeAsString, true);
     return;
   }
   // advance the location to startArgList.
@@ -1090,7 +1096,7 @@ void RewriteBlocks::RewriteCastExpr(CStyleCastExpr *CE) {
     case '^':
       // Replace the '^' with '*'.
       LocStart = LocStart.getLocWithOffset(argPtr-startBuf);
-      ReplaceText(LocStart, 1, "*");
+      ReplaceText(LocStart, 1, "*", true);
       break;
     }
   }

@@ -1872,7 +1872,7 @@ void RewriteBlocks::HandleDeclInMainFile(Decl *D)
         CurrentBody = VD->getInit();
         RewriteStatement(VD->getInit(), NULL);
         CurrentBody = 0;
-        SynthesizeBlockLiterals(VD->getTypeSpecStartLoc(), VD->getName());
+        SynthesizeBlockLiterals(VD->getOuterLocStart(), VD->getName());
         GlobalVarDecl = 0;
           
         // This is needed for blocks.

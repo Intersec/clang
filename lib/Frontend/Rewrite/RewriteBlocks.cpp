@@ -1952,7 +1952,15 @@ Stmt *RewriteBlocks::RewriteStatement(Stmt *S, CompoundStmt *CS)
     ImportedLocalExternalDecls.clear();
     // Now we snarf the rewritten text and stash it away for later use.
     std::string Str = Rewrite.getRewrittenText(BE->getSourceRange());
-    llvm::StringRef Str2(::strchr(Str.c_str(), '{') + 1);
+    const char *Paren = ::strchr(Str.c_str(), '{');
+
+    if (Str.size() == 0 || !Paren) {
+      Diags.Report(Context->getFullLoc(BE->getLocStart()), RewriteFailedDiag)
+                   << BE->getSourceRange();
+      return S;
+    }
+
+    llvm::StringRef Str2(Paren + 1);
 
     RewrittenBlockExprs[BE] = MakeSharpLine(BE->getSourceRange().getBegin())
       + Str2.str();

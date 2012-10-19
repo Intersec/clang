@@ -599,6 +599,12 @@ void RewriteBlocks::RewriteBlockPointerDecl(NamedDecl *ND) {
   // Handle Variables and Typedefs.
   SourceLocation DeclLoc = ND->getLocation();
   QualType DeclT;
+
+  if (DeclLoc.isMacroID()) {
+    /* Macro are not supported by the rewriter */
+    return;
+  }
+
   if (VarDecl *VD = dyn_cast<VarDecl>(ND))
     DeclT = VD->getType();
   else if (TypedefNameDecl *TDD = dyn_cast<TypedefNameDecl>(ND))
@@ -611,8 +617,10 @@ void RewriteBlocks::RewriteBlockPointerDecl(NamedDecl *ND) {
   const char *startBuf = SM->getCharacterData(DeclLoc);
   const char *endBuf = startBuf;
   // scan backward (from the decl location) for the end of the previous decl.
-  while (*startBuf != '^' && *startBuf != ';' && startBuf != MainFileStart)
+  while (startBuf != MainFileStart && *startBuf != '^' && *startBuf != ';') {
+    assert (*startBuf);
     startBuf--;
+  }
   SourceLocation Start = DeclLoc.getLocWithOffset(startBuf-endBuf);
   std::string buf;
   unsigned OrigLength=0;
@@ -625,6 +633,7 @@ void RewriteBlocks::RewriteBlockPointerDecl(NamedDecl *ND) {
     OrigLength++;
   }
   while (*startBuf != ')') {
+    assert (*startBuf);
     buf += *startBuf;
     startBuf++;
     OrigLength++;

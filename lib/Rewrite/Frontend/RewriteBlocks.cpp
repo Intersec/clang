@@ -1835,6 +1835,7 @@ void RewriteBlocks::InsertBlockLiteralsWithinFunction(FunctionDecl *FD)
 void RewriteBlocks::HandleDeclInMainFile(Decl *D)
 {
   switch (D->getKind()) {
+    case Decl::CXXMethod:
     case Decl::Function: {
       FunctionDecl *FD = cast<FunctionDecl>(D);
       if (FD->isOverloadedOperator()) {

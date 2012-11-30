@@ -128,6 +128,7 @@ namespace {
     CStyleCastExpr* NoTypeInfoCStyleCastExpr(ASTContext *Ctx, QualType Ty,
                                              CastKind Kind, Expr *E);
     bool convertBlockPointerToFunctionPointer(QualType &T);
+    QualType canonifyType(QualType t);
     QualType convertFunctionTypeOfBlocks(const FunctionType *FT);
     QualType getSimpleFunctionType(QualType result,
                                    const QualType *args,
@@ -402,7 +403,7 @@ QualType RewriteBlocks::getSimpleFunctionType(QualType result,
                                bool variadic) {
   FunctionProtoType::ExtProtoInfo fpi;
   fpi.Variadic = variadic;
-  return Context->getFunctionType(result, args, numArgs, fpi);
+  return Context->getFunctionType(canonifyType(result), args, numArgs, fpi);
 }
 
 CStyleCastExpr* RewriteBlocks::NoTypeInfoCStyleCastExpr(ASTContext *Ctx, QualType Ty,
@@ -424,6 +425,14 @@ bool RewriteBlocks::convertBlockPointerToFunctionPointer(QualType &T) {
   return false;
 }
 
+QualType RewriteBlocks::canonifyType(const QualType type) {
+  if (type->isFunctionType() || type->isFunctionPointerType()
+  || type->isBlockPointerType()) {
+    return type;
+  }
+  return type.getCanonicalType();
+}
+
 QualType RewriteBlocks ::convertFunctionTypeOfBlocks(const FunctionType *FT) {
   const FunctionProtoType *FTP = dyn_cast<FunctionProtoType>(FT);
   // FTP will be null for closures that don't take arguments.
@@ -435,7 +444,7 @@ QualType RewriteBlocks ::convertFunctionTypeOfBlocks(const FunctionType *FT) {
   if (FTP) {
     for (FunctionProtoType::arg_type_iterator I = FTP->arg_type_begin(),
          E = FTP->arg_type_end(); I && (I != E); ++I) {
-      QualType t = *I;
+      QualType t = canonifyType(*I);
       // Make sure we convert "t (^)(...)" to "t (*)(...)".
       if (convertBlockPointerToFunctionPointer(t))
         HasBlockType = true;
@@ -903,7 +912,7 @@ void RewriteBlocks::RewriteByRefVar(VarDecl *ND) {
   ByrefType += "#endif\n";
   // Add void *__Block_byref_id_object_copy; 
   // void *__Block_byref_id_object_dispose; if needed.
-  QualType Ty = ND->getType();
+  QualType Ty = canonifyType(ND->getType());
   bool HasCopyAndDispose = Context->BlockRequiresCopying(Ty);
   if (HasCopyAndDispose) {
     ByrefType += " void (*__Block_byref_id_object_copy)(void*, void*);\n";
@@ -1124,7 +1133,7 @@ std::string RewriteBlocks::SynthesizeBlockFunc(BlockExpr *CE, int i,
                                                    StringRef funcName,
                                                    std::string Tag) {
   const FunctionType *AFT = CE->getFunctionType();
-  QualType RT = AFT->getResultType();
+  QualType RT = canonifyType(AFT->getResultType());
   std::string StructRef = "struct " + Tag;
   std::string S = "static " + RT.getAsString(Context->getPrintingPolicy()) + " __" +
                   funcName.str() + "_" + "block_func_" + utostr(i);
@@ -1199,6 +1208,7 @@ std::string RewriteBlocks::SynthesizeBlockFunc(BlockExpr *CE, int i,
       QualType QT = (*I)->getType();
       if (HasLocalVariableExternalStorage(*I))
         QT = Context->getPointerType(QT);
+      QT = canonifyType(QT);
       QT.getAsStringInternal(Name, Context->getPrintingPolicy());
       S += Name + " = __cself->" + 
                               (*I)->getNameAsString() + "; // bound by copy\n";
@@ -1297,6 +1307,7 @@ std::string RewriteBlocks::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
         QualType QT = (*I)->getType();
         if (HasLocalVariableExternalStorage(*I))
           QT = Context->getPointerType(QT);
+        QT = canonifyType(QT);
         QT.getAsStringInternal(FieldName, Context->getPrintingPolicy());
         QT.getAsStringInternal(ArgName, Context->getPrintingPolicy());
         Constructor += ", " + ArgName;
@@ -1589,7 +1600,7 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
 
   // Get a pointer to the function type so we can cast appropriately.
   QualType BFT = convertFunctionTypeOfBlocks(Exp->getFunctionType());
-  QualType FType = Context->getPointerType(BFT);
+  QualType FType = canonifyType(Context->getPointerType(BFT));
 
   FunctionDecl *FD;
   Expr *NewRep;
@@ -1767,6 +1778,7 @@ Stmt *RewriteBlocks::SynthesizeBlockCall(CallExpr *Exp, const Expr *BlockExp) {
                                       SourceLocation(), SourceLocation(),
                                       &Context->Idents.get("__block_impl"));
   QualType PtrBlock = Context->getPointerType(Context->getTagDeclType(RD));
+  PtrBlock = canonifyType(PtrBlock);
 
   // Generate a funky cast.
   SmallVector<QualType, 8> ArgTypes;
@@ -1777,12 +1789,13 @@ Stmt *RewriteBlocks::SynthesizeBlockCall(CallExpr *Exp, const Expr *BlockExp) {
     for (FunctionProtoType::arg_type_iterator I = FTP->arg_type_begin(),
          E = FTP->arg_type_end(); I && (I != E); ++I) {
       QualType t = *I;
-      ArgTypes.push_back(t);
+      ArgTypes.push_back(canonifyType(t));
     }
   }
   // Now do the pointer to function cast.
   QualType PtrToFuncCastType
-    = getSimpleFunctionType(Exp->getType(), &ArgTypes[0], ArgTypes.size());
+    = getSimpleFunctionType(canonifyType(Exp->getType()),
+                            &ArgTypes[0], ArgTypes.size());
 
   PtrToFuncCastType = Context->getPointerType(PtrToFuncCastType);
 

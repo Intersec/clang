@@ -697,10 +697,9 @@ void RewriteBlocks::RewriteBlockPointerFunctionArgs(FunctionDecl *FD) {
     switch (*argPtr) {
     case '^':
       // Replace the '^' with '*'.
-      DeclLoc = DeclLoc.getLocWithOffset(argPtr-startArgList);
       /* intersec: disable warnings here we handle the carret rewriting
        * ourselves with the BLOCK_CARET macro */
-      ReplaceText(DeclLoc, 1, "*", false);
+      ReplaceText(DeclLoc.getLocWithOffset(argPtr-startArgList), 1, "*", false);
       break;
     case '(':
       parenCount++;

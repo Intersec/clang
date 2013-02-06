@@ -1707,7 +1707,7 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
 
   if (CS) {
     std::string Var     = Tag + "__VAR";
-    std::string VarDecl = "struct " + Tag + " " + Var + ";\n";
+    std::string VarDecl = "struct " + Tag + " " + Var + ";";
     InsertText(CS->getLocStart().getLocWithOffset(1), VarDecl, false);
   }
 

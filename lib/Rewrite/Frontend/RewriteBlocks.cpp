@@ -327,11 +327,11 @@ void RewriteBlocks::Initialize(ASTContext &context)
     Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\" __declspec(dllimport)\n";
     Preamble += "#define __OBJC_RW_STATICIMPORT extern \"C\"\n";
   } else {
-    Preamble += "#ifdef __cplusplus\n";
-    Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\"\n";
-    Preamble += "#else\n";
-    Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
-    Preamble += "#endif\n";
+    if (LangOpts.CPlusPlus) {
+      Preamble += "#define __OBJC_RW_DLLIMPORT extern \"C\"\n";
+    } else {
+      Preamble += "#define __OBJC_RW_DLLIMPORT extern\n";
+    }
   }
   // Blocks preamble.
   Preamble += "#ifndef BLOCK_IMPL\n";
@@ -341,10 +341,10 @@ void RewriteBlocks::Initialize(ASTContext &context)
   Preamble += "  int Flags;\n";
   Preamble += "  int Reserved;\n";
   Preamble += "  void *FuncPtr;\n";
-  Preamble += "#ifdef __cplusplus\n";
-  Preamble += "  __block_impl(void *_isa, int _flags, void *_fp)\n";
-  Preamble += "    : isa(_isa), Flags(_flags), Reserved(0), FuncPtr(_fp) { }\n";
-  Preamble += "#endif\n";
+  if (LangOpts.CPlusPlus) {
+    Preamble += "  __block_impl(void *_isa, int _flags, void *_fp)\n";
+    Preamble += "    : isa(_isa), Flags(_flags), Reserved(0), FuncPtr(_fp) { }\n";
+  }
   Preamble += "};\n";
   Preamble += "// Runtime copy/destroy helper functions (from Block_private.h)\n";
   Preamble += "#ifdef __OBJC_EXPORT_BLOCKS\n";
@@ -362,12 +362,12 @@ void RewriteBlocks::Initialize(ASTContext &context)
   Preamble += "static inline void _Block_byref_dispose(const void *obj) {\n";
   Preamble += "    _Block_object_dispose(obj, /*BLOCK_FIELD_IS_BYREF*/8);\n";
   Preamble += "}\n";
-  Preamble += "#ifdef __cplusplus\n";
-  Preamble += "#include <new>\n";
-  Preamble += "#define _Block_byref_cleanup\n";
-  Preamble += "#else\n";
-  Preamble += "#define _Block_byref_cleanup __attribute__((cleanup(_Block_byref_dispose)))\n";
-  Preamble += "#endif\n";
+  if (LangOpts.CPlusPlus) {
+    Preamble += "#include <new>\n";
+    Preamble += "#define _Block_byref_cleanup\n";
+  } else {
+    Preamble += "#define _Block_byref_cleanup __attribute__((cleanup(_Block_byref_dispose)))\n";
+  }
   Preamble += "#endif\n";
   if (LangOpts.MicrosoftExt) {
     Preamble += "#undef __OBJC_RW_DLLIMPORT\n";
@@ -906,10 +906,10 @@ void RewriteBlocks::RewriteByRefVar(VarDecl *ND) {
   ByrefType += " *__forwarding;\n";
   ByrefType += " int __flags;\n";
   ByrefType += " int __size;\n";
-  ByrefType += "#ifdef __cplusplus\n";
-  ByrefType += "  ~__Block_byref_" + Name + "_" + utostr(BlockByRefDeclNo[ND])
-      + "() { _Block_byref_dispose(this); }\n";
-  ByrefType += "#endif\n";
+  if (LangOpts.CPlusPlus) {
+    ByrefType += "  ~__Block_byref_" + Name + "_" + utostr(BlockByRefDeclNo[ND])
+        + "() { _Block_byref_dispose(this); }\n";
+  }
   // Add void *__Block_byref_id_object_copy; 
   // void *__Block_byref_id_object_dispose; if needed.
   QualType Ty = canonifyType(ND->getType());
@@ -1387,25 +1387,25 @@ std::string RewriteBlocks::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     "    .Desc = (__blk_desc), \\\n"
     "  }\n";
 
-  S += "#ifdef __cplusplus\n";
-  S += Constructor;
-  S += "  " + Tag + "() : impl(NULL, 0, NULL) { }\n";
-  if (!GlobalVarDecl) {
-      S += "#define " + Tag + "__INST(...)  (new((void *)&" + Tag + "__VAR) " + Tag + "(__VA_ARGS__))\n";
+  if (LangOpts.CPlusPlus) {
+    S += Constructor;
+    S += "  " + Tag + "() : impl(NULL, 0, NULL) { }\n";
+    if (!GlobalVarDecl) {
+        S += "#define " + Tag + "__INST(...)  (new((void *)&" + Tag + "__VAR) " + Tag + "(__VA_ARGS__))\n";
+    } else {
+        S += "#define " + Tag + "__INST(...)  (&" + Tag + "__VAR)\n";
+    }
   } else {
-      S += "#define " + Tag + "__INST(...)  (&" + Tag + "__VAR)\n";
+    S += cConstructor;
+    if (!GlobalVarDecl) {
+        S += "#define " + Tag + "__INST(...)  ({ \\\n";
+        S += "    memcpy(&" + Tag + "__VAR, &(struct " + Tag + ")" + Tag + "(__VA_ARGS__), sizeof(" + Tag + "__VAR)); \\\n";
+        S += "    &" + Tag + "__VAR; \\\n";
+        S += "  })\n";
+    } else {
+        S += "#define " + Tag + "__INST(...)  (&" + Tag + "__VAR)\n";
+    }
   }
-  S += "#else\n";
-  S += cConstructor;
-  if (!GlobalVarDecl) {
-      S += "#define " + Tag + "__INST(...)  ({ \\\n";
-      S += "    memcpy(&" + Tag + "__VAR, &(struct " + Tag + ")" + Tag + "(__VA_ARGS__), sizeof(" + Tag + "__VAR)); \\\n";
-      S += "    &" + Tag + "__VAR; \\\n";
-      S += "  })\n";
-  } else {
-      S += "#define " + Tag + "__INST(...)  (&" + Tag + "__VAR)\n";
-  }
-  S += "#endif\n";
   S += "};\n";
   return S;
 }
@@ -1504,11 +1504,11 @@ void RewriteBlocks::SynthesizeBlockLiterals(SourceLocation FunLocStart,
     if (GlobalVarDecl) {
       std::string S;
       std::string Args = "(void *)" + FuncTag + ", &" + DescTag + "_DATA, 0";
-      S += "#ifdef __cplusplus\n";
-      S += "static struct " + ImplTag + " " + ImplTag + "__VAR(" + Args + ");\n";
-      S += "#else\n";
-      S += "static struct " + ImplTag + " " + ImplTag + "__VAR = " + ImplTag + "(" + Args + ");\n";
-      S += "#endif\n";
+      if (LangOpts.CPlusPlus) {
+        S = "static struct " + ImplTag + " " + ImplTag + "__VAR(" + Args + ");\n";
+      } else {
+        S = "static struct " + ImplTag + " " + ImplTag + "__VAR = " + ImplTag + "(" + Args + ");\n";
+      }
       InsertText(FunLocStart, S);
     }
 

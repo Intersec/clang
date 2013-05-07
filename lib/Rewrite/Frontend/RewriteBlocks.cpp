@@ -359,9 +359,11 @@ void RewriteBlocks::Initialize(ASTContext &context)
   Preamble += "__OBJC_RW_DLLIMPORT void *_NSConcreteGlobalBlock[32];\n";
   Preamble += "__OBJC_RW_DLLIMPORT void *_NSConcreteStackBlock[32];\n";
   Preamble += "#endif\n";
+  Preamble += "/* LCOV_EXCL_START */\n";
   Preamble += "static inline void _Block_byref_dispose(const void *obj) {\n";
   Preamble += "    _Block_object_dispose(obj, /*BLOCK_FIELD_IS_BYREF*/8);\n";
   Preamble += "}\n";
+  Preamble += "/* LCOV_EXCL_STOP */\n";
   if (LangOpts.CPlusPlus) {
     Preamble += "#include <new>\n";
     Preamble += "#define _Block_byref_cleanup\n";

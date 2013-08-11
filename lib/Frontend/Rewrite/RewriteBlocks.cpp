@@ -15,6 +15,7 @@
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/ParentMap.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/IdentifierTable.h"
@@ -131,8 +132,7 @@ namespace {
     QualType canonifyType(QualType t);
     QualType convertFunctionTypeOfBlocks(const FunctionType *FT);
     QualType getSimpleFunctionType(QualType result,
-                                   const QualType *args,
-                                   unsigned numArgs,
+                                   ArrayRef<QualType> args,
                                    bool variadic = false);
     void GetExtentOfArgList(const char *Name, const char *&LParen,
                             const char *&RParen);
@@ -414,12 +414,11 @@ static bool isTopLevelBlockPointerType(QualType T)
 }
 
 QualType RewriteBlocks::getSimpleFunctionType(QualType result,
-                               const QualType *args,
-                               unsigned numArgs,
-                               bool variadic) {
+                                   ArrayRef<QualType> args,
+                                   bool variadic) {
   FunctionProtoType::ExtProtoInfo fpi;
   fpi.Variadic = variadic;
-  return Context->getFunctionType(canonifyType(result), args, numArgs, fpi);
+  return Context->getFunctionType(result, args, fpi);
 }
 
 CStyleCastExpr* RewriteBlocks::NoTypeInfoCStyleCastExpr(ASTContext *Ctx, QualType Ty,
@@ -471,7 +470,7 @@ QualType RewriteBlocks ::convertFunctionTypeOfBlocks(const FunctionType *FT) {
   // FIXME. Does this work if block takes no argument but has a return type
   // which is of block type?
   if (HasBlockType)
-    FuncType = getSimpleFunctionType(Res, &ArgTypes[0], ArgTypes.size());
+    FuncType = getSimpleFunctionType(Res, ArgTypes);
   else FuncType = QualType(FT, 0);
   return FuncType;
 }
@@ -935,7 +934,7 @@ void RewriteBlocks::RewriteByRefVar(VarDecl *ND) {
   // Add void *__Block_byref_id_object_copy;
   // void *__Block_byref_id_object_dispose; if needed.
   QualType Ty = canonifyType(ND->getType());
-  bool HasCopyAndDispose = Context->BlockRequiresCopying(Ty);
+  bool HasCopyAndDispose = Context->BlockRequiresCopying(Ty, ND);
   if (HasCopyAndDispose) {
     ByrefType += " void (*__Block_byref_id_object_copy)(void*, void*);\n";
     ByrefType += " void (*__Block_byref_id_object_dispose)(void*);\n";
@@ -1649,7 +1648,7 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
                                    SourceLocation(), SourceLocation(),
                                    &Context->Idents.get(DescData.c_str()),
                                    Context->VoidPtrTy, 0,
-                                   SC_Static, SC_None);
+                                   SC_Static);
   UnaryOperator *DescRefExpr =
     new (Context) UnaryOperator(new (Context) DeclRefExpr(NewVD, false,
                                                           Context->VoidPtrTy,
@@ -1816,8 +1815,7 @@ Stmt *RewriteBlocks::SynthesizeBlockCall(CallExpr *Exp, const Expr *BlockExp) {
   }
   // Now do the pointer to function cast.
   QualType PtrToFuncCastType
-    = getSimpleFunctionType(canonifyType(Exp->getType()),
-                            &ArgTypes[0], ArgTypes.size());
+    = getSimpleFunctionType(canonifyType(Exp->getType()), ArgTypes);
 
   PtrToFuncCastType = Context->getPointerType(PtrToFuncCastType);
 

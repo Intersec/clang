@@ -2094,7 +2094,7 @@ bool RewriteBlocks::HandleTopLevelSingleDecl(Decl *D)
     }
   }
   // If we have a decl in the main file, see if we should rewrite it.
-  if (SM->isFromMainFile(Loc))
+  if (SM->isWrittenInMainFile(Loc))
     HandleDeclInMainFile(D);
   return !Diags.hasErrorOccurred();
 }

@@ -2812,6 +2812,7 @@ static bool isStrictlyPreprocessorAction(frontend::ActionKind Action) {
   case frontend::PluginAction:
   case frontend::PrintDeclContext:
   case frontend::RewriteObjC:
+  case frontend::RewriteBlocks:
   case frontend::RewriteTest:
   case frontend::RunAnalysis:
   case frontend::TemplightDump:

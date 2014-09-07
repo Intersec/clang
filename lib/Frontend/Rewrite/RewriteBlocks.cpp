@@ -25,7 +25,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/DenseSet.h"
 
 using namespace clang;
@@ -56,7 +55,6 @@ namespace {
       BLOCK_IS_GLOBAL =         (1 << 28),
       BLOCK_HAS_DESCRIPTOR =    (1 << 29)
     };
-    static const int OBJC_ABI_VERSION = 7;
 
     Rewriter Rewrite;
     DiagnosticsEngine &Diags;
@@ -453,12 +451,12 @@ QualType RewriteBlocks ::convertFunctionTypeOfBlocks(const FunctionType *FT) {
   // FTP will be null for closures that don't take arguments.
   // Generate a funky cast.
   SmallVector<QualType, 8> ArgTypes;
-  QualType Res = FT->getResultType();
+  QualType Res = FT->getReturnType();
   bool HasBlockType = convertBlockPointerToFunctionPointer(Res);
 
   if (FTP) {
-    for (FunctionProtoType::arg_type_iterator I = FTP->arg_type_begin(),
-         E = FTP->arg_type_end(); I && (I != E); ++I) {
+    for (FunctionProtoType::param_type_iterator I = FTP->param_type_begin(),
+         E = FTP->param_type_end(); I && (I != E); ++I) {
       QualType t = canonifyType(*I);
       // Make sure we convert "t (^)(...)" to "t (*)(...)".
       if (convertBlockPointerToFunctionPointer(t))
@@ -487,8 +485,8 @@ bool RewriteBlocks::PointerTypeTakesAnyBlockArguments(QualType QT)
     FTP = BPT->getPointeeType()->getAs<FunctionProtoType>();
   }
   if (FTP) {
-    for (FunctionProtoType::arg_type_iterator I = FTP->arg_type_begin(),
-         E = FTP->arg_type_end(); I != E; ++I)
+    for (FunctionProtoType::param_type_iterator I = FTP->param_type_begin(),
+         E = FTP->param_type_end(); I != E; ++I)
       if (isTopLevelBlockPointerType(*I))
         return true;
   }
@@ -730,8 +728,8 @@ void RewriteBlocks::RewriteBlocksInFunctionProtoType(QualType funcType,
                                                      NamedDecl *D) {
   if (const FunctionProtoType *fproto
       = dyn_cast<FunctionProtoType>(funcType.IgnoreParens())) {
-    for (FunctionProtoType::arg_type_iterator I = fproto->arg_type_begin(),
-         E = fproto->arg_type_end(); I && (I != E); ++I)
+    for (FunctionProtoType::param_type_iterator I = fproto->param_type_begin(),
+         E = fproto->param_type_end(); I && (I != E); ++I)
       if (isTopLevelBlockPointerType(*I)) {
         // All the args are checked/rewritten. Don't call twice!
         RewriteBlockPointerDecl(D);
@@ -752,14 +750,14 @@ void RewriteBlocks::RewriteBlockLiteralFunctionDecl(FunctionDecl *FD) {
   const FunctionProtoType *proto = dyn_cast<FunctionProtoType>(funcType);
   if (!proto)
     return;
-  QualType Type = proto->getResultType();
+  QualType Type = proto->getReturnType();
   std::string FdStr = Type.getAsString(Context->getPrintingPolicy());
   FdStr += " ";
   FdStr += FD->getName();
   FdStr +=  "(";
-  unsigned numArgs = proto->getNumArgs();
+  unsigned numArgs = proto->getNumParams();
   for (unsigned i = 0; i < numArgs; i++) {
-    QualType ArgType = proto->getArgType(i);
+    QualType ArgType = proto->getParamType(i);
     RewriteBlockPointerType(FdStr, ArgType);
     if (i+1 < numArgs)
       FdStr += ", ";
@@ -1154,7 +1152,7 @@ std::string RewriteBlocks::SynthesizeBlockFunc(BlockExpr *CE, int i,
                                                    StringRef funcName,
                                                    std::string Tag) {
   const FunctionType *AFT = CE->getFunctionType();
-  QualType RT = canonifyType(AFT->getResultType());
+  QualType RT = canonifyType(AFT->getReturnType());
   std::string StructRef = "struct " + Tag;
   std::string S = "static " + RT.getAsString(Context->getPrintingPolicy()) + " __" +
                   funcName.str() + "_" + "block_func_" + utostr(i);
@@ -1807,8 +1805,8 @@ Stmt *RewriteBlocks::SynthesizeBlockCall(CallExpr *Exp, const Expr *BlockExp) {
   // Push the block argument type.
   ArgTypes.push_back(PtrBlock);
   if (FTP) {
-    for (FunctionProtoType::arg_type_iterator I = FTP->arg_type_begin(),
-         E = FTP->arg_type_end(); I && (I != E); ++I) {
+    for (FunctionProtoType::param_type_iterator I = FTP->param_type_begin(),
+         E = FTP->param_type_end(); I && (I != E); ++I) {
       QualType t = *I;
       ArgTypes.push_back(canonifyType(t));
     }

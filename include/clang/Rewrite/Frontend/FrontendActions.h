@@ -65,8 +65,8 @@ protected:
 
 class RewriteBlocksAction : public ASTFrontendAction {
 protected:
-  virtual ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
-                                         llvm::StringRef InFile);
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 StringRef InFile) override;
 };
 
 class RewriteMacrosAction : public PreprocessorFrontendAction {

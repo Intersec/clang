@@ -177,8 +177,9 @@ RewriteObjCAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 
 #endif
 
-ASTConsumer *RewriteBlocksAction::CreateASTConsumer(CompilerInstance &CI,
-                                                    StringRef InFile) {
+std::unique_ptr<ASTConsumer>
+RewriteBlocksAction::CreateASTConsumer(CompilerInstance &CI,
+                                       StringRef InFile) {
   llvm::Twine suffix("rw." + llvm::sys::path::extension(InFile));
 
   if (llvm::raw_ostream *OS = CI.createDefaultOutputFile(false, InFile, suffix.str()))

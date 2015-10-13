@@ -1998,7 +1998,7 @@ Stmt *RewriteBlocks::RewriteStatement(Stmt *S, CompoundStmt *CS)
 
     llvm::StringRef Str2(Paren + 1);
 
-    RewrittenBlockExprs[BE] = MakeSharpLine(BE->getSourceRange().getBegin())
+    RewrittenBlockExprs[BE] = MakeSharpLine(BE->getBody()->getLocStart())
       + Str2.str();
 
     Stmt *blockTranscribed = SynthBlockInitExpr(BE, InnerBlockDeclRefs, CS);

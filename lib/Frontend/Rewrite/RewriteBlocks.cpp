@@ -212,35 +212,37 @@ namespace {
       const std::string &Str = S.str();
 
       // If replacement succeeded or warning disabled return with no warning.
-      if (!Rewrite.ReplaceText(SrcRange.getBegin(), Size, Str)) {
-        ReplacedNodes[Old] = New;
-        return;
+      if (Rewrite.ReplaceText(SrcRange.getBegin(), Size, Str)) {
+          if (SilenceRewriteMacroWarning) {
+              return;
+          }
+          Diags.Report(Context->getFullLoc(Old->getLocStart()),
+                       RewriteFailedDiag)
+              << Old->getSourceRange();
+          return;
       }
+      ReplacedNodes[Old] = New;
       if (doSharpLine) {
         unsigned f_lines =
-            Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocEnd()) -
-            Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocStart());
-          unsigned t_lines = 0;
-          size_t pos = Str.find('\n');
+          Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocEnd()) -
+          Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocStart());
+        unsigned t_lines = 0;
+        size_t pos = Str.find('\n');
 
-          while (pos != std::string::npos) {
-              t_lines++;
-              pos = Str.find('\n', pos + 1);
-          }
+        while (pos != std::string::npos) {
+          t_lines++;
+          pos = Str.find('\n', pos + 1);
+        }
 
-          if (f_lines != t_lines) {
-              std::string S = "\n# line ";
+        if (f_lines != t_lines) {
+          std::string S = "\n# line ";
 
-              S += utostr(Rewrite.getSourceMgr().getExpansionLineNumber(
-                  Old->getLocEnd()));
-              S += " \"" + File + "\"\n";
-              InsertText(Old->getLocEnd(), S);
-          }
+          S += utostr(Rewrite.getSourceMgr().getExpansionLineNumber(
+              Old->getLocEnd()));
+          S += " \"" + File + "\"\n";
+          InsertText(Old->getLocEnd(), S);
+        }
       }
-      if (SilenceRewriteMacroWarning)
-          return;
-      Diags.Report(Context->getFullLoc(Old->getLocStart()), RewriteFailedDiag)
-          << Old->getSourceRange();
     }
 
     void InsertText(SourceLocation Loc, StringRef Str,

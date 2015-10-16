@@ -123,8 +123,8 @@ namespace {
     ~RewriteBlocks() override {}
 
     virtual void Initialize(ASTContext &Context) override;
-    virtual bool HandleTopLevelDecl(DeclGroupRef D);
-    virtual void HandleTranslationUnit(ASTContext &C);
+    virtual bool HandleTopLevelDecl(DeclGroupRef D) override;
+    virtual void HandleTranslationUnit(ASTContext &C) override;
 
     CStyleCastExpr* NoTypeInfoCStyleCastExpr(ASTContext *Ctx, QualType Ty,
                                              CastKind Kind, Expr *E);

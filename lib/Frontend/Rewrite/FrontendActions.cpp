@@ -182,8 +182,9 @@ RewriteBlocksAction::CreateASTConsumer(CompilerInstance &CI,
                                        StringRef InFile) {
   llvm::Twine suffix("rw." + llvm::sys::path::extension(InFile));
 
-  if (llvm::raw_ostream *OS = CI.createDefaultOutputFile(false, InFile, suffix.str()))
-    return CreateBlocksRewriter(InFile, OS,
+  if (std::unique_ptr<raw_ostream> OS =
+      CI.createDefaultOutputFile(false, InFile, suffix.str()))
+    return CreateBlocksRewriter(InFile, std::move(OS),
                                 CI.getDiagnostics(), CI.getLangOpts(),
                                 CI.getDiagnosticOpts().NoRewriteMacros);
   return nullptr;

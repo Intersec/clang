@@ -38,7 +38,7 @@ CreateModernObjCRewriter(const std::string &InFile,
 
 // Blocks rewriter: attempts to rewrite Blocks constructs into pure C code.
 std::unique_ptr<ASTConsumer>
-CreateBlocksRewriter(const std::string &InFile, raw_ostream *OS,
+CreateBlocksRewriter(const std::string &InFile, std::unique_ptr<raw_ostream> OS,
                      DiagnosticsEngine &Diags, const LangOptions &LOpts,
                      bool SilenceRewriteMacroWarning);
 

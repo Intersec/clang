@@ -68,7 +68,7 @@ namespace {
     const char *MainFileStart, *MainFileEnd;
     Stmt *CurrentBody;
     std::string InFileName;
-    raw_ostream* OutFile;
+    std::unique_ptr<raw_ostream> OutFile;
     std::string Preamble;
 
     FunctionDecl *CurFunctionDef;
@@ -116,9 +116,9 @@ namespace {
     };
 
   public:
-    RewriteBlocks(std::string inFile, raw_ostream *OS,
-                DiagnosticsEngine &D, const LangOptions &LOpts,
-                bool silenceMacroWarn);
+    RewriteBlocks(std::string inFile, std::unique_ptr<raw_ostream> OS,
+                  DiagnosticsEngine &D, const LangOptions &LOpts,
+                  bool silenceMacroWarn);
 
     ~RewriteBlocks() override {}
 
@@ -303,10 +303,10 @@ static bool HasLocalVariableExternalStorage(ValueDecl *VD) {
   return false;
 }
 
-RewriteBlocks::RewriteBlocks(std::string inFile, raw_ostream* OS,
-                         DiagnosticsEngine &D, const LangOptions &LOpts,
-                         bool silenceMacroWarn)
-      : Diags(D), LangOpts(LOpts), InFileName(inFile), OutFile(OS),
+RewriteBlocks::RewriteBlocks(std::string inFile, std::unique_ptr<raw_ostream> OS,
+                             DiagnosticsEngine &D, const LangOptions &LOpts,
+                             bool silenceMacroWarn)
+      : Diags(D), LangOpts(LOpts), InFileName(inFile), OutFile(std::move(OS)),
         SilenceRewriteMacroWarning(silenceMacroWarn) {
   IsHeader = IsHeaderFile(inFile);
   RewriteFailedDiag = Diags.getCustomDiagID(DiagnosticsEngine::Warning,
@@ -314,10 +314,10 @@ RewriteBlocks::RewriteBlocks(std::string inFile, raw_ostream* OS,
 }
 
 std::unique_ptr<ASTConsumer>
-clang::CreateBlocksRewriter(const std::string &InFile, raw_ostream *OS,
+clang::CreateBlocksRewriter(const std::string &InFile, std::unique_ptr<raw_ostream> OS,
                             DiagnosticsEngine &Diags, const LangOptions &LOpts,
                             bool SilenceRewriteMacroWarning) {
-  return llvm::make_unique<RewriteBlocks>(InFile, OS, Diags, LOpts,
+  return llvm::make_unique<RewriteBlocks>(InFile, std::move(OS), Diags, LOpts,
                                           SilenceRewriteMacroWarning);
 }
 

@@ -870,7 +870,7 @@ Stmt *RewriteBlocks::RewriteLocalVariableExternalStorage(DeclRefExpr *DRE) {
       return DRE;
   Expr *Exp = new (Context) UnaryOperator(DRE, UO_Deref, DRE->getType(),
                                           VK_LValue, OK_Ordinary,
-                                          DRE->getLocation());
+                                          DRE->getLocation(), false);
   // Need parens to enforce precedence.
   ParenExpr *PE = new (Context) ParenExpr(SourceLocation(), SourceLocation(),
                                           Exp);
@@ -1652,7 +1652,7 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
                                 UO_AddrOf,
                                 Context->getPointerType(Context->VoidPtrTy),
                                 VK_RValue, OK_Ordinary,
-                                SourceLocation());
+                                SourceLocation(), false);
   InitExprs.push_back(DescRefExpr);
 
   // Add initializers for any closure decl refs.
@@ -1675,7 +1675,8 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
           QualType QT = (*I)->getType();
           QT = Context->getPointerType(QT);
           Exp = new (Context) UnaryOperator(Exp, UO_AddrOf, QT, VK_RValue,
-                                            OK_Ordinary, SourceLocation());
+                                            OK_Ordinary, SourceLocation(),
+                                            false);
         }
 
       }
@@ -1716,7 +1717,8 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
       if (!isNestedCapturedVar)
           Exp = new (Context) UnaryOperator(Exp, UO_AddrOf,
                                      Context->getPointerType(Exp->getType()),
-                                     VK_RValue, OK_Ordinary, SourceLocation());
+                                     VK_RValue, OK_Ordinary, SourceLocation(),
+                                     false);
       Exp = NoTypeInfoCStyleCastExpr(Context, castT, CK_BitCast, Exp);
       InitExprs.push_back(Exp);
     }

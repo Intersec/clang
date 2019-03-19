@@ -201,7 +201,7 @@ namespace {
       // Measure the old text.
       int Size = Rewrite.getRangeSize(SrcRange);
       if (Size == -1) {
-        Diags.Report(Context->getFullLoc(Old->getLocStart()), RewriteFailedDiag)
+        Diags.Report(Context->getFullLoc(Old->getBeginLoc()), RewriteFailedDiag)
                      << Old->getSourceRange();
         return;
       }
@@ -216,7 +216,7 @@ namespace {
           if (SilenceRewriteMacroWarning) {
               return;
           }
-          Diags.Report(Context->getFullLoc(Old->getLocStart()),
+          Diags.Report(Context->getFullLoc(Old->getBeginLoc()),
                        RewriteFailedDiag)
               << Old->getSourceRange();
           return;
@@ -224,8 +224,8 @@ namespace {
       ReplacedNodes[Old] = New;
       if (doSharpLine) {
         unsigned f_lines =
-          Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocEnd()) -
-          Rewrite.getSourceMgr().getExpansionLineNumber(Old->getLocStart());
+          Rewrite.getSourceMgr().getExpansionLineNumber(Old->getEndLoc()) -
+          Rewrite.getSourceMgr().getExpansionLineNumber(Old->getBeginLoc());
         unsigned t_lines = 0;
         size_t pos = Str.find('\n');
 
@@ -238,9 +238,9 @@ namespace {
           std::string S = "\n# line ";
 
           S += utostr(Rewrite.getSourceMgr().getExpansionLineNumber(
-              Old->getLocEnd()));
+              Old->getEndLoc()));
           S += " \"" + File + "\"\n";
-          InsertText(Old->getLocEnd(), S);
+          InsertText(Old->getEndLoc(), S);
         }
       }
     }
@@ -910,7 +910,7 @@ void RewriteBlocks::RewriteByRefVar(VarDecl *ND) {
     // Use variable's location which is good for this case.
     DeclLoc = ND->getLocation();
   const char *startBuf = SM->getCharacterData(DeclLoc);
-  SourceLocation X = ND->getLocEnd();
+  SourceLocation X = ND->getEndLoc();
   X = SM->getExpansionLoc(X);
   const char *endBuf = SM->getCharacterData(X);
   std::string Name(ND->getNameAsString());
@@ -1000,7 +1000,7 @@ void RewriteBlocks::RewriteByRefVar(VarDecl *ND) {
     if (const CStyleCastExpr *ECE = dyn_cast<CStyleCastExpr>(E))
       startLoc = ECE->getLParenLoc();
     else
-      startLoc = E->getLocStart();
+      startLoc = E->getBeginLoc();
     startLoc = SM->getExpansionLoc(startLoc);
     endBuf = SM->getCharacterData(startLoc);
     ByrefType += " _Block_byref_cleanup " + Name;
@@ -1623,15 +1623,16 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
 
   // Simulate a contructor call...
   FD = SynthBlockInitFunctionDecl(Tag + "__INST");
-  DeclRefExpr *DRE = new (Context) DeclRefExpr(FD, false, FType, VK_RValue,
-                                               SourceLocation());
+  DeclRefExpr *DRE = new (Context)
+      DeclRefExpr(*Context, FD, false, FType, VK_RValue, SourceLocation());
 
   SmallVector<Expr*, 4> InitExprs;
 
   // Initialize the block function.
   FD = SynthBlockInitFunctionDecl(Func);
-  DeclRefExpr *Arg = new (Context) DeclRefExpr(FD, false, FD->getType(),
-                                               VK_LValue, SourceLocation());
+  DeclRefExpr *Arg = new (Context)
+      DeclRefExpr(*Context, FD, false, FD->getType(), VK_LValue,
+                  SourceLocation());
   CastExpr *castExpr = NoTypeInfoCStyleCastExpr(Context, Context->VoidPtrTy,
                                                 CK_BitCast, Arg);
   InitExprs.push_back(castExpr);
@@ -1644,15 +1645,11 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
                                    &Context->Idents.get(DescData.c_str()),
                                    Context->VoidPtrTy, 0,
                                    SC_Static);
-  UnaryOperator *DescRefExpr =
-    new (Context) UnaryOperator(new (Context) DeclRefExpr(NewVD, false,
-                                                          Context->VoidPtrTy,
-                                                          VK_LValue,
-                                                          SourceLocation()),
-                                UO_AddrOf,
-                                Context->getPointerType(Context->VoidPtrTy),
-                                VK_RValue, OK_Ordinary,
-                                SourceLocation(), false);
+  UnaryOperator *DescRefExpr = new (Context) UnaryOperator(
+        new (Context) DeclRefExpr(*Context, NewVD, false, Context->VoidPtrTy,
+                                  VK_LValue, SourceLocation()),
+        UO_AddrOf, Context->getPointerType(Context->VoidPtrTy), VK_RValue,
+        OK_Ordinary, SourceLocation(), false);
   InitExprs.push_back(DescRefExpr);
 
   // Add initializers for any closure decl refs.
@@ -1663,14 +1660,14 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
          E = BlockByCopyDecls.end(); I != E; ++I) {
       if (isTopLevelBlockPointerType((*I)->getType())) {
         FD = SynthBlockInitFunctionDecl((*I)->getName());
-        Arg = new (Context) DeclRefExpr(FD, false, FD->getType(), VK_LValue,
-                                        SourceLocation());
+        Arg = new (Context) DeclRefExpr(*Context, FD, false, FD->getType(),
+                                        VK_LValue, SourceLocation());
         Exp = NoTypeInfoCStyleCastExpr(Context, Context->VoidPtrTy,
                                        CK_BitCast, Arg);
       } else {
         FD = SynthBlockInitFunctionDecl((*I)->getName());
-        Exp = new (Context) DeclRefExpr(FD, false, FD->getType(), VK_LValue,
-                                        SourceLocation());
+        Exp = new (Context) DeclRefExpr(*Context, FD, false, FD->getType(),
+                                        VK_LValue, SourceLocation());
         if (HasLocalVariableExternalStorage(*I)) {
           QualType QT = (*I)->getType();
           QT = Context->getPointerType(QT);
@@ -1698,8 +1695,8 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
       QualType castT = Context->getPointerType(Context->getTagDeclType(RD));
 
       FD = SynthBlockInitFunctionDecl((*I)->getName());
-      Exp = new (Context) DeclRefExpr(FD, false, FD->getType(), VK_LValue,
-                                      SourceLocation());
+      Exp = new (Context) DeclRefExpr(*Context, FD, false, FD->getType(),
+                                      VK_LValue, SourceLocation());
       bool isNestedCapturedVar = false;
       if (block)
         for (BlockDecl::capture_const_iterator ci = block->capture_begin(),
@@ -1727,7 +1724,7 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
   if (CS) {
     std::string Var     = Tag + "__VAR";
     std::string VarDecl = "struct " + Tag + " " + Var + ";";
-    InsertText(CS->getLocStart().getLocWithOffset(1), VarDecl, false);
+    InsertText(CS->getBeginLoc().getLocWithOffset(1), VarDecl, false);
   }
 
   int flag = 0;
@@ -1741,8 +1738,8 @@ Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
                                          Context->IntTy, SourceLocation());
   InitExprs.push_back(FlagExp);
 
-  NewRep = new (Context) CallExpr(*Context, DRE, InitExprs,
-                                  FType, VK_LValue, SourceLocation());
+  NewRep = CallExpr::Create(*Context, DRE, InitExprs, FType, VK_LValue,
+                            SourceLocation());
   NewRep = NoTypeInfoCStyleCastExpr(Context, Context->VoidPtrTy,
                                     CK_BitCast, NewRep);
   NewRep = NoTypeInfoCStyleCastExpr(Context, FType, CK_BitCast,
@@ -1846,9 +1843,8 @@ Stmt *RewriteBlocks::SynthesizeBlockCall(CallExpr *Exp, const Expr *BlockExp) {
        E = Exp->arg_end(); I != E; ++I) {
     BlkExprs.push_back(*I);
   }
-  CallExpr *CE = new (Context) CallExpr(*Context, PE, BlkExprs,
-                                        Exp->getType(), VK_RValue,
-                                        SourceLocation());
+  CallExpr *CE = CallExpr::Create(*Context, PE, BlkExprs, Exp->getType(),
+                                  VK_RValue, SourceLocation());
   return CE;
 }
 
@@ -1993,14 +1989,14 @@ Stmt *RewriteBlocks::RewriteStatement(Stmt *S, CompoundStmt *CS)
     const char *Paren = ::strchr(Str.c_str(), '{');
 
     if (Str.size() == 0 || !Paren) {
-      Diags.Report(Context->getFullLoc(BE->getLocStart()), RewriteFailedDiag)
+      Diags.Report(Context->getFullLoc(BE->getBeginLoc()), RewriteFailedDiag)
                    << BE->getSourceRange();
       return S;
     }
 
     llvm::StringRef Str2(Paren + 1);
 
-    RewrittenBlockExprs[BE] = MakeSharpLine(BE->getBody()->getLocStart())
+    RewrittenBlockExprs[BE] = MakeSharpLine(BE->getBody()->getBeginLoc())
       + Str2.str();
 
     Stmt *blockTranscribed = SynthBlockInitExpr(BE, InnerBlockDeclRefs, CS);

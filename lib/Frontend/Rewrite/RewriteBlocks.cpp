@@ -838,9 +838,9 @@ Stmt *RewriteBlocks::RewriteBlockDeclRefExpr(DeclRefExpr *DeclRefExp) {
                                     /*BitWidth=*/0,
                                     /*Mutable=*/true,
                                     ICIS_NoInit);
-  MemberExpr *ME = new (Context)
-      MemberExpr(DeclRefExp, isArrow, SourceLocation(), FD, SourceLocation(),
-                 FD->getType(), VK_LValue, OK_Ordinary);
+  MemberExpr *ME =
+      MemberExpr::CreateImplicit(*Context, DeclRefExp, isArrow, FD,
+                                 FD->getType(), VK_LValue, OK_Ordinary);
 
   StringRef Name = VD->getName();
   FD = FieldDecl::Create(*Context, 0, SourceLocation(), SourceLocation(),
@@ -848,9 +848,8 @@ Stmt *RewriteBlocks::RewriteBlockDeclRefExpr(DeclRefExpr *DeclRefExp) {
                          Context->VoidPtrTy, 0,
                          /*BitWidth=*/0, /*Mutable=*/true,
                          ICIS_NoInit);
-  ME =
-      new (Context) MemberExpr(ME, true, SourceLocation(), FD, SourceLocation(),
-                               DeclRefExp->getType(), VK_LValue, OK_Ordinary);
+  ME = MemberExpr::CreateImplicit(*Context, ME, true, FD, DeclRefExp->getType(),
+                                  VK_LValue, OK_Ordinary);
 
   // Need parens to enforce precedence.
   ParenExpr *PE = new (Context) ParenExpr(DeclRefExp->getExprLoc(),
@@ -1561,7 +1560,7 @@ FunctionDecl *RewriteBlocks::SynthBlockInitFunctionDecl(StringRef name) {
   QualType FType = Context->getFunctionNoProtoType(Context->VoidPtrTy);
   return FunctionDecl::Create(*Context, TUDecl, SourceLocation(),
                               SourceLocation(), ID, FType, 0, SC_Extern,
-                              SC_None, false, false);
+                              false, false);
 }
 
 Stmt *RewriteBlocks::SynthBlockInitExpr(BlockExpr *Exp,
@@ -1827,9 +1826,8 @@ Stmt *RewriteBlocks::SynthesizeBlockCall(CallExpr *Exp, const Expr *BlockExp) {
                                     Context->VoidPtrTy, 0,
                                     /*BitWidth=*/0, /*Mutable=*/true,
                                     ICIS_NoInit);
-  MemberExpr *ME =
-      new (Context) MemberExpr(PE, true, SourceLocation(), FD, SourceLocation(),
-                               FD->getType(), VK_LValue, OK_Ordinary);
+  MemberExpr *ME = MemberExpr::CreateImplicit(
+      *Context, PE, true, FD, FD->getType(), VK_LValue, OK_Ordinary);
 
   CastExpr *FunkCast = NoTypeInfoCStyleCastExpr(Context, PtrToFuncCastType,
                                                 CK_BitCast, ME);
